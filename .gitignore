@@ -1,0 +1,21 @@
+# 學生／班級資料與測試照片——絕對不要上傳到公開 repo
+社會計量班級_*.json
+社會計量全部備份_*.json
+社會計量_*.csv
+社會計量結果_*.csv
+*.csv
+*backup*.json
+*.jpg
+*.jpeg
+*.png
+*.heic
+*.mov
+*.mp4
+# 大型第三方檔案：用 tools/offline_setup.py 自行下載（YOLO 權重為 AGPL-3.0）
+models/*.onnx
+vendor/*.js
+vendor/*.mjs
+vendor/*.wasm
+*.part
+.DS_Store
+__pycache__/

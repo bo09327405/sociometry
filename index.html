@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>社會計量站位辨識</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header>
+  <h1>社會計量站位辨識</h1>
+  <button id="bCam">開啟鏡頭</button><select id="camSel" hidden title="選擇攝影機"></select>
+  <button id="bImg">載入照片測試</button><input id="file" type="file" accept="image/*" hidden>
+  <span class="sep"></span>
+  <button id="bCal">① 校準地板</button>
+  <button id="bScan" class="primary">② 掃描一次</button>
+  <button id="bLoop">連續掃描</button>
+  <button id="bEdit">③ 手動校正</button>
+  <span class="sep"></span>
+  <button id="bLock">④ 鎖定本題</button>
+  <button id="bSnap">存快照</button>
+  <span class="sep"></span>
+  <button id="bProj">投影視窗</button>
+  <button id="bCsv">匯出 CSV</button>
+</header>
+<div id="classbar">
+  <label>班級</label><select id="clsSel" title="切換班級"></select>
+  <button id="cNew">＋新增班級</button><button id="cRen" class="sm">改名</button><button id="cDel" class="sm">刪除班級</button>
+  <label>組別</label><select id="grpSel" title="快速鍵：1–9 切組、A＝全班同場、M＝合併檢視"></select>
+  <label>組數</label><select id="grpN"><option>1</option><option>2</option><option>3</option><option selected>4</option><option>5</option><option>6</option><option>7</option><option>8</option></select>
+  <span class="sep"></span>
+  <button id="cTplSave" class="sm" title="把本班題目存成範本，新增班級時自動套用">存為範本</button><button id="cTplApply" class="sm">套用範本</button>
+  <span class="sep"></span>
+  <button id="cExp" class="sm">匯出本班</button><button id="cBackup" class="sm">全部備份</button><button id="cImp" class="sm">匯入備份</button><input id="cFile" type="file" accept=".json" hidden><button id="cCsvAll" class="sm">全部班級 CSV</button>
+  <span id="saveInfo" class="mute"></span>
+</div>
+<main>
+  <!-- 左：題目 -->
+  <aside>
+    <section class="card">
+      <h2>題目清單（← → 切換）<span id="qCount" class="mute" style="float:right"></span></h2>
+      <input type="text" id="qSearch" placeholder="搜尋題目或輸入題號…" style="width:100%;margin-bottom:6px">
+      <ul id="qlist"></ul>
+      <div class="row">
+        <button id="qAdd">＋新增</button><button id="qDup">複製</button><button id="qDel">刪除</button><button id="qUp" class="sm">↑</button><button id="qDn" class="sm">↓</button>
+      </div>
+      <div class="row"><button id="qReset" class="sm">還原範例題組</button><button id="qExp" class="sm">匯出題組</button><button id="qImp" class="sm">匯入題組</button><input id="qFile" type="file" accept=".json" hidden></div>
+    </section>
+    <section class="card">
+      <h2>本題快照</h2>
+      <div id="snaps"></div>
+    </section>
+    <div class="privacy">🔒 隱私：影像只在這台電腦的瀏覽器內處理，不上傳、不存檔；畫面上只用圓點代表人，圖表不含人臉。</div>
+  </aside>
+
+  <!-- 中：影像 -->
+  <section>
+    <div class="card">
+      <div id="stage"><video id="vid" playsinline muted hidden></video><img id="pic" hidden alt=""><canvas id="ov"></canvas>
+        <div id="empty">請先「開啟鏡頭」，或「載入照片測試」。<br>建議鏡頭架在教室後方高處，斜拍往下，拍到整片站位地板。</div></div>
+      <div id="msg"></div>
+      <div id="stat"></div>
+      <div class="row">
+        <label class="chk"><input type="checkbox" id="showBox"> 顯示偵測框</label>
+        <button id="bUndo" class="sm">復原 (Ctrl+Z)</button>
+        <button id="bClear" class="sm">清除本題圓點</button>
+        <button id="bRecal" class="sm">重點四角</button>
+      </div>
+      <div id="hint"></div>
+      <details id="detSet"><summary>偵測設定（進階）</summary>
+        <div class="row"><label>模型</label><select id="model"></select>
+          <label>分塊</label><select id="tiles"><option value="auto">自動</option><option value="1x1">1 塊</option><option value="2x1">2 塊（橫）</option><option value="3x1">3 塊（橫）</option><option value="4x1">4 塊（橫）</option><option value="2x2">2×2</option><option value="3x2">3×2</option></select></div>
+        <div class="row"><label>偵測門檻 <input id="thr" type="range" min="0.1" max="0.7" step="0.05" value="0.25"> <span id="thrv">0.25</span></label>
+          <label>腳點</label><select id="foot"><option value="bottom">框底中點（預設）</option><option value="occl">遮擋補償（實驗）</option></select>
+          <label>穩定影格數</label><select id="stab"><option>1</option><option>3</option><option selected>5</option><option>7</option><option>9</option></select></div>
+        <div class="row"><label>地板實際大小 寬</label><input type="number" id="floorW" value="8" min="1" max="30" step="0.5" style="width:70px"><label>× 深</label><input type="number" id="floorD" value="6" min="1" max="30" step="0.5" style="width:70px"><label>公尺（關係距離用公尺換算）</label></div>
+        <div class="row"><button id="bModelFile" class="sm">選擇本機模型檔 (.onnx)</button><input id="modelFile" type="file" accept=".onnx" hidden><span class="mute" id="modelInfo"></span></div>
+      </details>
+    </div>
+  </section>
+
+  <!-- 右：設定與圖表 -->
+  <section id="rcol">
+    <div class="card">
+      <div class="row"><label>題目</label><input type="text" id="qTitle" style="flex:1;min-width:180px"></div>
+      <div class="row" id="techRow"></div>
+      <div class="mute" id="techHint"></div>
+      <div id="panel"></div>
+    </div>
+    <div class="card"><canvas id="chart" width="1280" height="720"></canvas></div>
+  </section>
+</main>
+<canvas id="viewc"></canvas>
+
+<script src="js/util.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/modes.js"></script>
+<script src="js/stabilizer.js"></script>
+<script src="js/detector.js"></script>
+<script src="js/cards.js"></script>
+<script src="js/store.js"></script>
+<script src="js/questions.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
