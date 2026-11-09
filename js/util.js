@@ -58,6 +58,8 @@
     });
   };
 
+  /* 色卡：固定五色（紅黃藍綠白），順序＝設定面板與取樣順序 */
+  SM.CARD_COLORS = [{ k: "red", name: "紅", c: "#e4572e" }, { k: "yellow", name: "黃", c: "#f2c94c" }, { k: "blue", name: "藍", c: "#4a9fd8" }, { k: "green", name: "綠", c: "#5cb85c" }, { k: "white", name: "白", c: "#f5f5f5" }];
   SM.sleep = (ms) => new Promise((r) => setTimeout(r, ms)); // 不用 requestAnimationFrame：分頁在背景時會停
   SM.median = (a) => { const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
   SM.clamp = (v, a, b) => Math.min(b, Math.max(a, v));

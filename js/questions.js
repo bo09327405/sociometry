@@ -9,7 +9,7 @@
   const WF = ["pts", "hidden", "locked", "snaps", "cardAdj", "cardCount", "cardPts"];
   const Q = (SM.Q = { uid, WF });
 
-  Q.emptyRes = () => ({ pts: [], hidden: [], locked: false, snaps: [], cardAdj: [0, 0, 0, 0], cardCount: [0, 0, 0, 0], cardPts: [] });
+  Q.emptyRes = () => ({ pts: [], hidden: [], locked: false, snaps: [], cardAdj: [0, 0, 0, 0, 0], cardCount: [0, 0, 0, 0, 0], cardPts: [] });
   Q.groupName = (g) => (g === "all" ? "全班同場" : g === "merge" ? "合併檢視" : "第" + g + "組");
 
   Q.create = function (type, title, cfg) {
@@ -33,11 +33,11 @@
   /* q.res[g] → 工作欄位 */
   Q.load = function (q, g, n) {
     if (g === "merge") {
-      const e = Q.emptyRes(); e.pts = []; e.cardCount = [0, 0, 0, 0]; e.cardAdj = [0, 0, 0, 0];
-      for (let i = 1; i <= n; i++) { const r = q.res[String(i)]; if (!r) continue; e.pts = e.pts.concat(r.pts.map((p) => ({ x: p.x, y: p.y, m: p.m }))); for (let k = 0; k < 4; k++) { e.cardCount[k] += r.cardCount[k]; e.cardAdj[k] += r.cardAdj[k]; } }
+      const e = Q.emptyRes(); e.pts = []; e.cardCount = [0, 0, 0, 0, 0]; e.cardAdj = [0, 0, 0, 0, 0];
+      for (let i = 1; i <= n; i++) { const r = q.res[String(i)]; if (!r) continue; e.pts = e.pts.concat(r.pts.map((p) => ({ x: p.x, y: p.y, m: p.m }))); for (let k = 0; k < 5; k++) { e.cardCount[k] += r.cardCount[k] || 0; e.cardAdj[k] += r.cardAdj[k] || 0; } }
       e.snaps = (q.res.merge && q.res.merge.snaps) || []; WF.forEach((k) => (q[k] = e[k])); return;
     }
-    const r = q.res[g] || Q.emptyRes(); WF.forEach((k) => (q[k] = r[k] !== undefined ? r[k] : Q.emptyRes()[k]));
+    const r = q.res[g] || Q.emptyRes(); WF.forEach((k) => (q[k] = r[k] !== undefined ? r[k] : Q.emptyRes()[k])); ["cardAdj", "cardCount"].forEach((k) => { while (q[k].length < 5) q[k].push(0); }); // 舊資料只有 4 色
   };
   Q.resOf = (q, g, cur) => (g === cur ? Object.fromEntries(WF.map((k) => [k, q[k]])) : q.res[g]);
 

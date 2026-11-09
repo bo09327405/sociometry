@@ -52,8 +52,8 @@
     },
     cards(c, W, H, v) {
       header(c, W, H, v);
-      const cols = ["#e4572e", "#5cb85c", "#f2c94c", "#4a9fd8"];
-      bars(c, W, H, v, (i) => cols[i % 4]);
+      const cols = SM.CARD_COLORS.map((x) => x.c);
+      bars(c, W, H, v, (i) => cols[i % cols.length]);
       const n = v.counts.length, gx = W * 0.05, bw = W * 0.9 / n;
       c.textAlign = "center"; c.fillStyle = FG;
       v.labels.forEach((l, i) => { const s = fit(c, l, bw * 0.92, H * 0.07, "bold"); c.font = "bold " + s + "px " + FONT; c.fillText(l, gx + i * bw + bw / 2, H * 0.86); });

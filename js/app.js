@@ -111,7 +111,7 @@
     else if (S.tool === "calib") t = S.corners.length < 4 ? "依序點地板四角：左上(遠左)、右上(遠右)、右下(近右)、左下(近左)；點完後可拖曳角點微調。" : "拖曳橘色角點微調，完成後再按一次「校準地板」。";
     else if (S.tool === "center") t = "在地板畫面上點出圓心（例如放「房子」標誌的位置）。";
     else if (S.tool === "edit") t = "手動校正：點空白處＝新增；點圓點＝刪除；拖曳圓點＝移動。紅點＝自動偵測，藍點＝手動。";
-    else if (S.tool === "sample") t = "請點一張「" + ["紅", "綠", "黃", "藍"][SM.Cards.sampling] + "」色卡。";
+    else if (S.tool === "sample") t = "請點一張「" + SM.CARD_COLORS[SM.Cards.sampling].name + "」色卡。";
     else if (!calibrated()) t = "尚未校準地板：目前以整張畫面當作地板（誤差會較大）。建議先按「① 校準地板」。";
     else if (q && q.type === "distance" && !q.cfg.center) t = "請先在右側按「在畫面上點選圓心」。";
     else t = "已校準。按「② 掃描」或「連續掃描」；數字不對就用「③ 手動校正」。";
@@ -288,7 +288,7 @@
     refresh(); renderList();
   };
   $("bSnap").onclick = () => { snapshot(); msg("已存快照（共 " + Q().snaps.length + " 筆）。"); };
-  $("bClear").onclick = () => { const q = Q(); if (ro()) return msg("合併檢視是唯讀。"); if (q.locked) return msg("本題已鎖定。"); pushUndo(); q.pts = []; q.hidden = []; q.cardCount = [0, 0, 0, 0]; q.cardPts = []; q.cardAdj = [0, 0, 0, 0]; S.stab.reset(); drawOv(); refresh(); renderList(); };
+  $("bClear").onclick = () => { const q = Q(); if (ro()) return msg("合併檢視是唯讀。"); if (q.locked) return msg("本題已鎖定。"); pushUndo(); q.pts = []; q.hidden = []; q.cardCount = [0, 0, 0, 0, 0]; q.cardPts = []; q.cardAdj = [0, 0, 0, 0, 0]; S.stab.reset(); drawOv(); refresh(); renderList(); };
   $("bCsv").onclick = () => { if (!SM.Q.snapCount([plainNow()])) return msg("本班還沒有快照。請先「④ 鎖定本題」或「存快照」。"); SM.Q.download("社會計量_" + S.cls.name + "_" + new Date().toISOString().slice(0, 10) + ".csv", SM.Q.toCSV([plainNow()])); msg("已匯出本班 CSV（UTF-8 含 BOM，Excel 可直接開啟）。"); };
 
   /* 投影視窗 */

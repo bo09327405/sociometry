@@ -5,7 +5,7 @@
   const h = (tag, attrs, ...kids) => {
     const e = document.createElement(tag);
     for (const k in attrs || {}) { if (attrs[k] == null) continue; if (k === "class") e.className = attrs[k]; else if (k.startsWith("on")) e[k] = attrs[k]; else if (k === "value") e.value = attrs[k]; else e.setAttribute(k, attrs[k]); }
-    kids.flat().forEach((c) => c != null && e.append(c.nodeType ? c : document.createTextNode(c)));
+    kids.flat(Infinity).forEach((c) => c != null && e.append(c.nodeType ? c : document.createTextNode(c)));
     return e;
   };
   SM.h = h;
@@ -128,19 +128,19 @@
 
     cards: {
       name: "色卡（輔助）", en: "Colour cards", hint: "學生舉色卡選擇；輔助用，不是主要辨識方式。",
-      defaults: () => ({ labels: ["捷運", "公車", "走路", "家長接送"] }),
+      defaults: () => ({ labels: ["捷運", "公車", "走路", "家長接送", "其他"] }),
       panel(q, on, rebuild, app) {
-        const c = q.cfg, cols = ["#e4572e", "#5cb85c", "#f2c94c", "#4a9fd8"], names = ["紅", "綠", "黃", "藍"];
+        const c = q.cfg, CC = SM.CARD_COLORS;
         return [
-          row(lab("色卡意義"), [0, 1, 2, 3].map((i) => h("span", {}, h("span", { class: "sw", style: "background:" + cols[i] }), " ", text(c.labels[i] || "", (v) => { c.labels[i] = v; on(); }, 7),
+          row(lab("色卡意義"), CC.map((cc, i) => h("span", { class: "cardopt" }, h("span", { class: "sw", style: "background:" + cc.c + ";border:1px solid #888" }), " ", text(c.labels[i] || "", (v) => { c.labels[i] = v; on(); }, 7),
             h("button", { class: "tool sm", onclick: () => { q.cardAdj[i]--; on(); } }, "−"), h("button", { class: "tool sm", onclick: () => { q.cardAdj[i]++; on(); } }, "＋")))),
           row(h("button", { class: "tool", onclick: () => app.cards.base() }, "拍背景基準"), h("button", { class: "tool", onclick: () => app.cards.sample() }, "取樣色卡"),
-            h("span", { class: "mute" }, "步驟：大家還沒舉卡時先「拍背景基準」→「取樣色卡」依序點紅綠黃藍各一張 → 掃描。")),
+            h("span", { class: "mute" }, "步驟：大家還沒舉卡時先「拍背景基準」→「取樣色卡」依序點紅、黃、藍、綠、白各一張 → 掃描。")),
         ];
       },
       compute(q) {
         const cnt = q.cardCount.map((n, i) => Math.max(0, n + (q.cardAdj[i] || 0)));
-        return { labels: [0, 1, 2, 3].map((i) => q.cfg.labels[i] || ["紅", "綠", "黃", "藍"][i]), counts: cnt, extra: {} };
+        return { labels: SM.CARD_COLORS.map((cc, i) => q.cfg.labels[i] || cc.name), counts: cnt, extra: {} };
       },
       overlay() {},
     },

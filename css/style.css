@@ -64,3 +64,4 @@ body.view #classbar{display:none}
 .authbox{margin-left:auto;display:inline-flex;gap:8px;align-items:center;font-size:13px}
 .authbox .who{color:var(--ok)}.authbox .no{color:var(--bad)}
 button.locked{opacity:.5}
+.cardopt{display:inline-flex;gap:3px;align-items:center;margin-right:6px}
