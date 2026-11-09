@@ -99,6 +99,9 @@
           row(lab("圓心名稱"), text(c.centerLabel, (v) => { c.centerLabel = v; on(); }, 10),
             h("button", { class: "tool", onclick: () => app.pickCenter() }, "在畫面上點選圓心"),
             h("span", { class: "mute", id: "centerInfo" }, c.center ? "圓心已設定" : "尚未設定圓心")),
+          row(lab("或直接輸入圓心位置（公尺，地板左上角＝0,0；不用鏡頭也能事先設定）"),
+            lab("x"), num(c.center ? +c.center.x.toFixed(2) : "", (v) => { c.center = c.center || { x: 0, y: 0 }; c.center.x = v; on(); }, 0, 30, 0.1),
+            lab("y"), num(c.center ? +c.center.y.toFixed(2) : "", (v) => { c.center = c.center || { x: 0, y: 0 }; c.center.y = v; on(); }, 0, 30, 0.1)),
           row(lab("圈數"), select([2, 3, 4, 5].map((n) => [n, n]), c.rings, (v) => { c.rings = +v; fill(); on(); }), lab("每圈寬度(公尺)"), num(c.step, (v) => { c.step = Math.max(0.2, v || 1); on(); }, 0.2, 6, 0.1)),
           h("div", { class: "mute" }, "各圈名稱（最後一格＝最外圈之外）："), nameBox,
         ];

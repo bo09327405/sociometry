@@ -325,7 +325,7 @@
   function plainNow() { stashAll(); S.cls.cur = S.cur; S.cls.group = S.group; return SM.Q.plainClass(S.cls, S.qs); }
   async function saveClass() {
     if (S.noSave || !S.cls) return;
-    if (S.calibDirty && S.sw) { S.cls.corners = S.corners.map((p) => p.slice()); S.cls.sz = [S.sw, S.sh]; S.calibDirty = false; }
+    if (S.calibDirty && S.sw) { S.cls.corners = S.corners.length === 4 ? S.corners.map((p) => [p[0] / S.sw, p[1] / S.sh]) : []; S.cls.sz = [S.sw, S.sh]; S.calibDirty = false; calibInfo(); }
     try { await SM.Store.putClass(plainNow()); await SM.Store.setMeta("app", { cur: S.cls.id, settings: S.settings, template: S.meta.template }); $("saveInfo").textContent = "已自動儲存 " + new Date().toLocaleTimeString("zh-TW", { hour12: false }); }
     catch (e) { $("saveInfo").textContent = "⚠ 儲存失敗：" + e.message + "（請用「全部備份」匯出）"; }
   }
@@ -334,7 +334,7 @@
   addEventListener("pagehide", () => saveClass());
 
   /* ================= 教師權限（Google 登入把關；非資安機制，見 js/auth.js） ================= */
-  const GATED = ["cNew", "cRen", "cDel", "cTplApply", "cImp", "qReset", "qImp"];
+  const GATED = ["cCalAll", "cNew", "cRen", "cDel", "cTplApply", "cImp", "qReset", "qImp"];
   function guard() { if (SM.Auth.isTeacher()) return true; msg(SM.Auth.user ? "「" + SM.Auth.user.email + "」不在教師名單內，無法執行這個操作。" : "這個操作需要教師登入：請按右上角「使用 Google 登入」。"); return false; }
   function applyAuth() {
     const A = SM.Auth, ok = A.isTeacher(), box = $("authBox"); box.innerHTML = "";
@@ -360,12 +360,17 @@
   const validGroup = (g) => g === "all" || g === "merge" || groupsOf().includes(g);
   function stashAll() { if (S.cls) S.qs.forEach((q) => SM.Q.stash(q, S.group)); }
   function loadAll() { S.qs.forEach((q) => SM.Q.load(q, S.group, S.cls.groups)); }
+  /* 校準以 0–1 比例座標存在「班級」底下：本班所有組別、所有題目共用，只需校準一次；
+     換鏡頭解析度（長寬比相同）仍可沿用。舊版存的是像素座標，第一次讀取時自動換算。 */
+  const toNorm = (c) => (c.corners || []).map((p) => (p[0] > 1.5 || p[1] > 1.5) && c.sz ? [p[0] / c.sz[0], p[1] / c.sz[1]] : p.slice());
   function applyClassCalib() {
     const c = S.cls; if (!c) return;
     S.floor = c.floor; $("floorW").value = c.floor.w; $("floorD").value = c.floor.d;
-    S.corners = c.corners && c.corners.length === 4 && (!S.sw || (c.sz && c.sz[0] === S.sw && c.sz[1] === S.sh)) ? c.corners.map((p) => p.slice()) : [];
-    rebuildH(); S.calibDirty = false;
+    const n = toNorm(c); c.corners = n; S.corners = [];
+    if (n.length === 4 && S.sw) { const same = !c.sz || Math.abs(c.sz[0] / c.sz[1] - S.sw / S.sh) < 0.03; if (same) S.corners = n.map((p) => [p[0] * S.sw, p[1] * S.sh]); }
+    rebuildH(); S.calibDirty = false; calibInfo();
   }
+  function calibInfo() { const c = S.cls, saved = c && c.corners && c.corners.length === 4; $("calibInfo").textContent = !c ? "" : !saved ? "📐 本班尚未校準" : S.sw && !S.corners.length ? "📐 本班有校準，但目前畫面的長寬比不同，請重新校準" : "📐 本班已校準（套用於本班所有組別與題目）"; }
   function syncClassBar() {
     const cs = $("clsSel"); cs.innerHTML = ""; S.classes.forEach((c) => cs.append(h("option", { value: c.id }, c.name))); if (S.cls) cs.value = S.cls.id;
     const gs = $("grpSel"); gs.innerHTML = ""; groupsOf().forEach((g) => gs.append(h("option", { value: g }, SM.Q.groupName(g)))); gs.append(h("option", { value: "all" }, "全班同場（一次站完）"), h("option", { value: "merge" }, "合併檢視（第1–" + groupsOf().length + "組相加・唯讀）")); gs.value = S.group;
@@ -382,6 +387,7 @@
   const tplConfigs = () => S.meta.template || SM.Q.configsOf(SM.Q.sampleSet());
   async function addClasses(names) {
     const made = names.map((n) => SM.Q.newClass(n, tplConfigs(), 4)); if (!made.length) return;
+    if (S.cls && toNorm(S.cls).length === 4) made.forEach((c) => { c.corners = toNorm(S.cls); c.sz = S.cls.sz; c.floor = { w: S.cls.floor.w, d: S.cls.floor.d }; }); // 同一間教室：新班級自動沿用校準
     made.forEach((c) => { S.classes.push(c); if (!S.noSave) SM.Store.putClass(c); });
     S.classes.sort((a, b) => a.created - b.created); await switchClass(made[0].id); syncClassBar();
   }
@@ -396,6 +402,13 @@
     const id = S.cls.id; stopLoop(); S.classes = S.classes.filter((c) => c.id !== id); if (!S.noSave) await SM.Store.delClass(id);
     S.cls = null; if (!S.classes.length) { const c = SM.Q.newClass("第1班", tplConfigs(), 4); S.classes.push(c); if (!S.noSave) SM.Store.putClass(c); }
     await switchClass(S.classes[0].id); syncClassBar();
+  };
+  $("cCalAll").onclick = async () => {
+    if (!guard()) return; await saveClass(); const n = toNorm(S.cls);
+    if (n.length !== 4) return msg("本班還沒校準。請先開啟鏡頭（或照片）按「① 校準地板」。");
+    if (!confirm("把「" + S.cls.name + "」的校準（地板四角與實際大小）套用到全部 " + S.classes.length + " 個班級？\n（只適用於同一間教室、同一個鏡頭位置；各班原本的校準會被取代，題目與結果不受影響）")) return;
+    for (const c of S.classes) { if (c === S.cls) continue; c.corners = n.map((p) => p.slice()); c.sz = S.cls.sz; c.floor = { w: S.cls.floor.w, d: S.cls.floor.d }; if (!S.noSave) await SM.Store.putClass(SM.Q.plainClass(c, c.qs)); }
+    msg("已把校準套用到全部 " + S.classes.length + " 個班級。");
   };
   $("cTplSave").onclick = () => { S.meta.template = SM.Q.configsOf(S.qs); scheduleSave(); msg("已把本班的 " + S.qs.length + " 題存為「範本題組」。之後新增班級會自動套用。"); };
   $("cTplApply").onclick = () => { if (!guard()) return; if (!confirm("用範本題組取代本班全部題目？本班各組結果與快照會被清除。")) return; S.qs = SM.Q.fromConfigs(tplConfigs()); S.cls.qs = S.qs; S.cur = 0; afterSwitch(); msg("已套用範本題組（" + S.qs.length + " 題）。"); };

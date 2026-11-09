@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>社會計量站位辨識</title>
-<link rel="stylesheet" href="css/style.css?v=20261109c">
+<link rel="stylesheet" href="css/style.css?v=20261109e">
 </head>
 <body>
 <header>
@@ -29,9 +29,11 @@
   <label>組別</label><select id="grpSel" title="快速鍵：1–9 切組、A＝全班同場、M＝合併檢視"></select>
   <label>組數</label><select id="grpN"><option>1</option><option>2</option><option>3</option><option selected>4</option><option>5</option><option>6</option><option>7</option><option>8</option></select>
   <span class="sep"></span>
+  <button id="cCalAll" class="sm" title="同一間教室、同一個鏡頭位置時，校準一次就套用到所有班級">校準套用到全部班級</button>
   <button id="cTplSave" class="sm" title="把本班題目存成範本，新增班級時自動套用">存為範本</button><button id="cTplApply" class="sm">套用範本</button>
   <span class="sep"></span>
   <button id="cExp" class="sm">匯出本班</button><button id="cBackup" class="sm">全部備份</button><button id="cImp" class="sm">匯入備份</button><input id="cFile" type="file" accept=".json" hidden><button id="cCsvAll" class="sm">全部班級 CSV</button>
+  <span id="calibInfo" class="mute"></span>
   <span id="saveInfo" class="mute"></span>
   <span id="authBox" class="authbox"></span>
 </div>
@@ -93,16 +95,16 @@
 </main>
 <canvas id="viewc"></canvas>
 
-<script src="js/util.js?v=20261109c"></script>
-<script src="js/charts.js?v=20261109c"></script>
-<script src="js/modes.js?v=20261109c"></script>
-<script src="js/stabilizer.js?v=20261109c"></script>
-<script src="js/detector.js?v=20261109c"></script>
-<script src="js/cards.js?v=20261109c"></script>
-<script src="js/config.js?v=20261109c"></script>
-<script src="js/store.js?v=20261109c"></script>
-<script src="js/auth.js?v=20261109c"></script>
-<script src="js/questions.js?v=20261109c"></script>
-<script src="js/app.js?v=20261109c"></script>
+<script src="js/util.js?v=20261109e"></script>
+<script src="js/charts.js?v=20261109e"></script>
+<script src="js/modes.js?v=20261109e"></script>
+<script src="js/stabilizer.js?v=20261109e"></script>
+<script src="js/detector.js?v=20261109e"></script>
+<script src="js/cards.js?v=20261109e"></script>
+<script src="js/config.js?v=20261109e"></script>
+<script src="js/store.js?v=20261109e"></script>
+<script src="js/auth.js?v=20261109e"></script>
+<script src="js/questions.js?v=20261109e"></script>
+<script src="js/app.js?v=20261109e"></script>
 </body>
 </html>
