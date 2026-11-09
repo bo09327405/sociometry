@@ -343,8 +343,8 @@
     if (A.user) {
       box.append(h("span", { class: ok ? "who" : "no" }, (ok ? "👤 教師：" : "⚠ 非教師帳號：") + (A.user.name || A.user.email)), ok ? h("button", { class: "sm", onclick: manageTeachers }, "教師名單") : "", h("button", { class: "sm", onclick: () => A.logout() }, "登出"));
     } else {
-      const g = h("span", { id: "gbtn" }); box.append(h("span", { class: "mute" }, "班級管理需教師登入"), g);
-      if (A.loadError) box.append(h("span", { class: "no" }, A.loadError)); else if (A.renderButton) A.renderButton(g);
+      const g = h("span", { id: "gbtn" }), b = h("button", { class: "sm", onclick: async () => { b.disabled = true; try { await A.loadGsi(); b.remove(); A.renderButton(g); } catch (e) { b.disabled = false; msg(e.message); } } }, "教師登入（Google）");
+      box.append(h("span", { class: "mute" }, "班級管理需教師登入；上課操作不需要"), b, g);
     }
   }
   async function manageTeachers() {

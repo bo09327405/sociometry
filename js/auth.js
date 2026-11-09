@@ -9,7 +9,8 @@
 
   Auth.enabled = () => !!cfg.googleClientId;
   Auth.teachers = () => Array.from(new Set((cfg.teachers || []).map(norm).concat(Auth.owners.map(norm)).filter(Boolean)));
-  Auth.isTeacher = () => !Auth.enabled() || (!!Auth.user && Auth.teachers().includes(norm(Auth.user.email)));
+  Auth.isTeacher = () => !Auth.enabled() || (!!Auth.user && (Auth.teachers().includes(norm(Auth.user.email)) || (!!Auth.user.hash && (cfg.teacherHashes || []).includes(Auth.user.hash))));
+  Auth.sha256 = async (t) => { try { const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(norm(t))); return Array.from(new Uint8Array(b)).map((x) => x.toString(16).padStart(2, "0")).join(""); } catch (e) { return null; } };
 
   function parseJwt(t) { const p = t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"); return JSON.parse(decodeURIComponent(escape(atob(p + "=".repeat((4 - (p.length % 4)) % 4))))); }
 
@@ -20,8 +21,9 @@
     if (!/^(https:\/\/)?accounts\.google\.com$/.test(c.iss || "")) return { ok: false, reason: "憑證簽發者不正確" };
     if (!c.email || c.email_verified === false) return { ok: false, reason: "此 Google 帳號的 email 未驗證" };
     if (c.exp * 1000 < Date.now()) return { ok: false, reason: "憑證已過期，請重新登入" };
-    if (!Auth.teachers().length) { Auth.owners = [norm(c.email)]; await Auth.saveOwners(); } // 第一個登入者成為管理者
-    Auth.user = { email: c.email, name: c.name || c.email, exp: c.exp * 1000 };
+    const hash = await Auth.sha256(c.email);
+    if (!Auth.teachers().length && !(cfg.teacherHashes || []).length) { Auth.owners = [norm(c.email)]; await Auth.saveOwners(); } // 第一個登入者成為管理者
+    Auth.user = { email: c.email, name: c.name || c.email, exp: c.exp * 1000, hash };
     try { sessionStorage.setItem("sm.auth", JSON.stringify(Auth.user)); } catch (e) {}
     Auth.onChange();
     return { ok: Auth.isTeacher(), reason: Auth.isTeacher() ? "" : "「" + c.email + "」不在教師名單內" };
@@ -39,11 +41,15 @@
     try { if (SM.Store && SM.Store.ready) Auth.owners = (await SM.Store.getMeta("teachers")) || []; } catch (e) {}
     try { const u = JSON.parse(sessionStorage.getItem("sm.auth")); if (u && u.exp > Date.now()) Auth.user = u; } catch (e) {}
     Auth.ready = true;
-    if (!Auth.enabled()) return;
-    SM.loadScript(["https://accounts.google.com/gsi/client"]).then(() => {
+  };
+
+  /* 只有按下「教師登入」才載入 Google 的程式（學生使用時完全不連 Google） */
+  Auth.loadGsi = function () {
+    if (Auth.gsi) return Auth.gsi;
+    Auth.gsi = SM.loadScript(["https://accounts.google.com/gsi/client"]).then(() => {
       google.accounts.id.initialize({ client_id: cfg.googleClientId, callback: async (r) => { const x = await Auth.handleCredential(r.credential); if (!x.ok && Auth.onDenied) Auth.onDenied(x.reason); }, auto_select: false });
       Auth.renderButton = (el) => google.accounts.id.renderButton(el, { theme: "outline", size: "medium", text: "signin_with", locale: "zh-TW" });
-      Auth.onChange();
-    }).catch(() => { Auth.loadError = "無法載入 Google 登入（需要網路，且請用 https 或 http://localhost 開啟，不能雙擊 index.html）"; Auth.onChange(); });
+    }).catch(() => { Auth.gsi = null; Auth.loadError = "無法載入 Google 登入（需要網路，且請用 https 或 http://localhost 開啟，不能雙擊 index.html）"; throw new Error(Auth.loadError); });
+    return Auth.gsi;
   };
 })();
