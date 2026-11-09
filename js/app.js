@@ -271,9 +271,9 @@
   $("qDel").onclick = () => { if (!confirm("刪除這一題（含快照）？")) return; S.qs.splice(S.cur, 1); if (!S.qs.length) S.qs.push(SM.Q.create("spectrum", "新題目")); selectQ(Math.min(S.cur, S.qs.length - 1)); };
   $("qUp").onclick = () => { if (S.cur > 0) { [S.qs[S.cur - 1], S.qs[S.cur]] = [S.qs[S.cur], S.qs[S.cur - 1]]; selectQ(S.cur - 1); } };
   $("qDn").onclick = () => { if (S.cur < S.qs.length - 1) { [S.qs[S.cur + 1], S.qs[S.cur]] = [S.qs[S.cur], S.qs[S.cur + 1]]; selectQ(S.cur + 1); } };
-  $("qReset").onclick = () => { if (!confirm("還原成範例題組？本班目前所有題目、各組結果與快照都會被取代。")) return; S.qs = SM.Q.sampleSet(); S.cls.qs = S.qs; selectQ(0); };
+  $("qReset").onclick = () => { if (!guard()) return; if (!confirm("還原成範例題組？本班目前所有題目、各組結果與快照都會被取代。")) return; S.qs = SM.Q.sampleSet(); S.cls.qs = S.qs; selectQ(0); };
   $("qExp").onclick = () => SM.Q.download("社會計量題組.json", JSON.stringify(SM.Q.configsOf(S.qs), null, 1), "application/json");
-  $("qImp").onclick = () => $("qFile").click();
+  $("qImp").onclick = () => { if (guard()) $("qFile").click(); };
   $("qFile").onchange = async (e) => { try { const a = JSON.parse(await e.target.files[0].text()); if (!confirm("匯入題組會取代本班的題目與各組結果。繼續？")) return; S.qs = SM.Q.fromConfigs(a); S.cls.qs = S.qs; selectQ(0); msg("已匯入 " + S.qs.length + " 題。"); } catch (err) { msg("匯入失敗：" + err.message); } };
 
   /* 鎖定 / 快照 */
@@ -333,6 +333,28 @@
   addEventListener("visibilitychange", () => { if (document.hidden) saveClass(); });
   addEventListener("pagehide", () => saveClass());
 
+  /* ================= 教師權限（Google 登入把關；非資安機制，見 js/auth.js） ================= */
+  const GATED = ["cNew", "cRen", "cDel", "cTplApply", "cImp", "qReset", "qImp"];
+  function guard() { if (SM.Auth.isTeacher()) return true; msg(SM.Auth.user ? "「" + SM.Auth.user.email + "」不在教師名單內，無法執行這個操作。" : "這個操作需要教師登入：請按右上角「使用 Google 登入」。"); return false; }
+  function applyAuth() {
+    const A = SM.Auth, ok = A.isTeacher(), box = $("authBox"); box.innerHTML = "";
+    GATED.forEach((id) => { const b = $(id); if (!b) return; b.disabled = !ok; b.classList.toggle("locked", !ok); b.title = ok ? "" : "需要教師 Google 登入"; });
+    if (!A.enabled()) { box.append(h("span", { class: "mute", title: "在 js/config.js 填入 Google Client ID 後啟用" }, "（Google 登入未啟用）")); return; }
+    if (A.user) {
+      box.append(h("span", { class: ok ? "who" : "no" }, (ok ? "👤 教師：" : "⚠ 非教師帳號：") + (A.user.name || A.user.email)), ok ? h("button", { class: "sm", onclick: manageTeachers }, "教師名單") : "", h("button", { class: "sm", onclick: () => A.logout() }, "登出"));
+    } else {
+      const g = h("span", { id: "gbtn" }); box.append(h("span", { class: "mute" }, "班級管理需教師登入"), g);
+      if (A.loadError) box.append(h("span", { class: "no" }, A.loadError)); else if (A.renderButton) A.renderButton(g);
+    }
+  }
+  async function manageTeachers() {
+    const A = SM.Auth, fixed = (SM.CONFIG.teachers || []), t = prompt("教師名單（可在這台電腦新增／移除）\n目前：" + (A.teachers().join("、") || "無") + "\n\n輸入要新增的 Google email（多個用逗號分隔）；在 email 前加 - 表示移除。\n（config.js 內固定的名單無法在這裡移除）", "");
+    if (!t) return; let list = A.owners.slice();
+    t.split(/[,，\s]+/).filter(Boolean).forEach((x) => { if (x.startsWith("-")) { const e = x.slice(1).toLowerCase(); if (A.user && e === A.user.email.toLowerCase() && !fixed.length && A.owners.length <= 1) return msg("不能移除唯一的教師。"); list = list.filter((y) => y !== e); } else list.push(x); });
+    await A.setOwners(list); msg("教師名單已更新：" + A.teachers().join("、"));
+  }
+  SM.Auth.onChange = applyAuth; SM.Auth.onDenied = (r) => msg("登入失敗：" + r);
+
   /* ================= 班級／組別 ================= */
   const groupsOf = () => { const n = S.cls ? S.cls.groups : 4; return Array.from({ length: n }, (_, i) => String(i + 1)); };
   const validGroup = (g) => g === "all" || g === "merge" || groupsOf().includes(g);
@@ -366,23 +388,24 @@
   $("clsSel").onchange = (e) => switchClass(e.target.value);
   $("grpSel").onchange = (e) => setGroup(e.target.value);
   $("grpN").onchange = (e) => { const n = +e.target.value; if (n < S.cls.groups && S.qs.some((q) => Object.keys(q.res).some((g) => +g > n && q.res[g] && q.res[g].pts && q.res[g].pts.length)) && !confirm("減少組數不會刪除資料，但第 " + (n + 1) + " 組以後會在清單中隱藏（調回即可看到）。繼續？")) return syncClassBar(); stashAll(); S.cls.groups = n; if (!validGroup(S.group)) S.group = "1"; loadAll(); afterSwitch(); };
-  $("cNew").onclick = () => { const t = prompt("輸入班級名稱（要一次建立多個，用逗號或換行分隔，例如：701,702,703）", ""); if (!t) return; const names = t.split(/[,，、\n]+/).map((x) => x.trim()).filter(Boolean); addClasses(names); };
-  $("cRen").onclick = () => { const t = prompt("班級名稱", S.cls.name); if (t && t.trim()) { S.cls.name = t.trim(); syncClassBar(); refresh(true); } };
+  $("cNew").onclick = () => { if (!guard()) return; const t = prompt("輸入班級名稱（要一次建立多個，用逗號或換行分隔，例如：701,702,703）", ""); if (!t) return; const names = t.split(/[,，、\n]+/).map((x) => x.trim()).filter(Boolean); addClasses(names); };
+  $("cRen").onclick = () => { if (!guard()) return; const t = prompt("班級名稱", S.cls.name); if (t && t.trim()) { S.cls.name = t.trim(); syncClassBar(); refresh(true); } };
   $("cDel").onclick = async () => {
+    if (!guard()) return;
     if (!confirm("刪除班級「" + S.cls.name + "」？它所有組別的結果與快照都會刪除，無法復原。\n（建議先按「匯出本班」備份）")) return;
     const id = S.cls.id; stopLoop(); S.classes = S.classes.filter((c) => c.id !== id); if (!S.noSave) await SM.Store.delClass(id);
     S.cls = null; if (!S.classes.length) { const c = SM.Q.newClass("第1班", tplConfigs(), 4); S.classes.push(c); if (!S.noSave) SM.Store.putClass(c); }
     await switchClass(S.classes[0].id); syncClassBar();
   };
   $("cTplSave").onclick = () => { S.meta.template = SM.Q.configsOf(S.qs); scheduleSave(); msg("已把本班的 " + S.qs.length + " 題存為「範本題組」。之後新增班級會自動套用。"); };
-  $("cTplApply").onclick = () => { if (!confirm("用範本題組取代本班全部題目？本班各組結果與快照會被清除。")) return; S.qs = SM.Q.fromConfigs(tplConfigs()); S.cls.qs = S.qs; S.cur = 0; afterSwitch(); msg("已套用範本題組（" + S.qs.length + " 題）。"); };
+  $("cTplApply").onclick = () => { if (!guard()) return; if (!confirm("用範本題組取代本班全部題目？本班各組結果與快照會被清除。")) return; S.qs = SM.Q.fromConfigs(tplConfigs()); S.cls.qs = S.qs; S.cur = 0; afterSwitch(); msg("已套用範本題組（" + S.qs.length + " 題）。"); };
   $("qSearch").oninput = (e) => { S.filter = e.target.value; renderList(); };
 
   /* 備份 / 匯入 */
   const stamp = () => new Date().toISOString().slice(0, 10);
   $("cExp").onclick = () => { SM.Q.download("社會計量班級_" + S.cls.name + "_" + stamp() + ".json", JSON.stringify({ format: "sociometry-class", v: 1, class: plainNow() }), "application/json"); msg("已匯出本班備份（JSON）。請存放在你自己的電腦，不要上傳公開網站。"); };
   $("cBackup").onclick = async () => { await saveClass(); const all = S.classes.map((c) => (c === S.cls ? plainNow() : SM.Q.plainClass(c, c.qs))); SM.Q.download("社會計量全部備份_" + stamp() + ".json", JSON.stringify({ format: "sociometry-backup", v: 1, exported: new Date().toISOString(), template: S.meta.template, classes: all }), "application/json"); msg("已匯出全部 " + all.length + " 班備份。請存放在你自己的電腦，不要上傳公開網站。"); };
-  $("cImp").onclick = () => $("cFile").click();
+  $("cImp").onclick = () => { if (guard()) $("cFile").click(); };
   $("cFile").onchange = async (e) => {
     try {
       const d = JSON.parse(await e.target.files[0].text()), list = d.format === "sociometry-backup" ? d.classes : d.format === "sociometry-class" ? [d.class] : null; if (!list) throw new Error("不是本工具的備份檔");
@@ -419,6 +442,7 @@
       if (!S.classes.length) { const leg = SM.Q.migrateLegacy && SM.Q.migrateLegacy(); if (leg) { S.classes.push(leg.cls); if (leg.settings) meta = Object.assign(meta || {}, { settings: leg.settings }); await SM.Store.putClass(leg.cls); } }
       if (mode === "ls") msg("⚠ 這個瀏覽器不能用 IndexedDB，改用 localStorage（容量較小）。請定期「全部備份」。");
     }
+    await SM.Auth.init(); applyAuth();
     if (meta) { Object.assign(S.settings, meta.settings || {}); S.meta.template = meta.template || null; }
     if (!SM.MODELS[S.settings.model]) S.settings.model = "yolov10s";
     if (!navigator.gpu && !(meta && meta.settings) && S.settings.model === "yolov10s") S.settings.model = "yolov10n"; // 沒有 WebGPU 時 WASM 較慢

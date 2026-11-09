@@ -3,7 +3,7 @@
 (function () {
   const SM = window.SM;
   const DBN = "sociometry", V = 1;
-  let db = null, mode = "idb";
+  let db = null, mode = "idb", ready = false;
   const LS = "sociometry.v2.";
 
   function open() {
@@ -18,7 +18,8 @@
 
   const Store = (SM.Store = {
     get mode() { return mode; },
-    async init() { try { db = await open(); mode = "idb"; } catch (e) { db = null; mode = "ls"; } return mode; },
+    get ready() { return ready; },
+    async init() { try { db = await open(); mode = "idb"; } catch (e) { db = null; mode = "ls"; } ready = true; return mode; },
     async allClasses() {
       if (db) return (await tx("classes", "readonly", (s) => s.getAll())) || [];
       const out = []; try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith(LS + "class.")) out.push(JSON.parse(localStorage.getItem(k))); } } catch (e) {} return out;

@@ -60,3 +60,7 @@ body.view #classbar{display:none}
 #qlist .t{flex:1 1 calc(100% - 30px)}
 #qlist .n{width:22px}
 #qlist .tag{margin-left:28px}
+
+.authbox{margin-left:auto;display:inline-flex;gap:8px;align-items:center;font-size:13px}
+.authbox .who{color:var(--ok)}.authbox .no{color:var(--bad)}
+button.locked{opacity:.5}
