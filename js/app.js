@@ -243,7 +243,7 @@
     if (!S.follow) v = null;
     else if (v && !(S.sw > 0)) { v = null; wait = "這班尚未校準地板（或操作電腦還沒存校準），無法換算人數。"; } // 沒有畫面大小就算不出位置，寧可不顯示也不要顯示成 0
     if (v && !v.counts.every(Number.isFinite)) v = null;
-    if (v) v.sub = (S.cls ? S.cls.name : "") + "・" + SM.Q.groupName(S.group) + (S.follow && S.follow.by ? "　（操作裝置 " + S.follow.by + "）" : "");
+    if (v) v.sub = (S.cls ? S.cls.name : "") + "・" + SM.Q.groupName(S.group) + (S.follow && S.follow.by ? "　（操作裝置 " + S.follow.by.replace(/#S$/, "") + (/#S$/.test(S.follow.by) ? "・連續掃描中" : "") + "）" : "");
     SM.Charts.smooth(cv, v, wait);
   }
   function postView(v) {
@@ -371,10 +371,10 @@
     if (!cloudOn() || S.live || S.liveMode === "off" || !S.cls || !S.cls._cloud || !Q() || !S.ready) return;
     const now = Date.now(); if (op) S.lastOp = now;
     if (S.liveMode === "auto" && !op && now - S.lastOp > 180000) return; // 自動：最近 3 分鐘有掃描／校正／鎖定才跟隨換題
-    const key = S.cls.id + "|" + Q().id + "|" + S.group;
+    const key = S.cls.id + "|" + Q().id + "|" + S.group + "|" + (S.loop ? "s" : "");
     if (key === S.lastPub && now - S.pubT < 5000) return; // 同一目標最多每 5 秒重發一次
     S.lastPub = key; S.pubT = now;
-    Cl().setLive({ classId: S.cls.id, qid: Q().id, group: S.group, by: S.devName, ts: now }).catch((e) => { console.warn("live pointer", e); }); // 失敗（例如規則尚未更新）不影響結果同步，只是投影不會自動跟隨
+    Cl().setLive({ classId: S.cls.id, qid: Q().id, group: S.group, by: S.devName + (S.loop ? "#S" : ""), ts: now }).catch((e) => { console.warn("live pointer", e); }); // 失敗（例如規則尚未更新）不影響結果同步，只是投影不會自動跟隨
   }
   /* 跟隨投影頁：依雲端指標切換班級／組別／題目 */
   async function applyFollow() {
@@ -658,7 +658,13 @@
       addEventListener("dblclick", () => { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {}); });
       if (!cloudOn()) { liveDraw(null); msg("跟隨投影需要雲端同步（請確認 js/config.js 的 firebase 設定與網路）。"); return; }
       addEventListener("resize", () => { if (Q()) refresh(true); else liveDraw(null); });
-      Cl().watchLive((d) => { S.follow = d; applyFollow(); }, (e) => setSync("err", e));
+      Cl().watchLive((d) => {
+        // 有裝置正在連續掃描時，其他裝置的一般操作（點選別題、加點）不搶走投影；掃描裝置每 5 秒會重發指標，20 秒沒再收到才放開
+        const isScan = (x) => !!x && /#S$/.test(x.by || "");
+        if (d && isScan(d)) { S.scanF = d; S.scanT = Date.now(); }
+        else if (d && S.scanF && Date.now() - S.scanT < 20000 && (d.by || "").replace(/#S$/, "") !== S.scanF.by.replace(/#S$/, "")) d = S.scanF;
+        S.follow = d; applyFollow();
+      }, (e) => setSync("err", e));
       liveDraw(Q() && S.follow ? buildView(Q()) : null);
     }
   }
