@@ -335,13 +335,11 @@
   addEventListener("pagehide", () => saveClass());
 
   /* ================= 教師權限（Google 登入把關；非資安機制，見 js/auth.js） ================= */
-  /* 雲端模式下，沒登入的人（學生）不能改題目／設定（伺服器規則同樣會擋）；仍可掃描、校正圓點、鎖定、存快照 */
+  /* 雲端模式下，沒登入的人（學生）可以編輯題目（內容、技術、選項、新增／刪除／排序）與操作各組結果；
+     但不能動「班級層級」的設定：新增／改名／刪除班級、組數、地板校準與大小（伺服器規則同樣會擋） */
   function lockCfg(lock) {
     lock = lock && cloudOn();
-    ["qAdd", "qDup", "qDel", "qUp", "qDn", "grpN", "cTplSave", "floorW", "floorD", "bRecal", "bCal"].forEach((id) => { if ($(id)) { $(id).disabled = lock; $(id).title = lock ? "需要教師登入" : ""; } });
-    $("qTitle").disabled = lock;
-    document.querySelectorAll("#panel input, #panel select, #techRow button").forEach((e) => (e.disabled = lock));
-    document.querySelectorAll("#panel button").forEach((b) => { if (/圓心/.test(b.textContent)) b.disabled = lock; });
+    ["grpN", "floorW", "floorD", "bRecal", "bCal"].forEach((id) => { if ($(id)) { $(id).disabled = lock; $(id).title = lock ? "需要教師登入" : ""; } });
     $("cUpload").hidden = !(cloudOn() && SM.Auth.isTeacher() && S.classes.some((c) => !c._cloud));
   }
   const GATED = ["cCalAll", "cNew", "cRen", "cDel", "cTplApply", "cImp", "qReset", "qImp"];
@@ -384,13 +382,15 @@
     if (!cloudOn() || !c || !c._cloud || !c._synced) return;
     c._h = c._h || { meta: "", q: {} }; const teacher = SM.Auth.isTeacher();
     try {
-      if (teacher) { const m = metaOf(c), hm = st8(m); if (hm !== c._h.meta) { await Cl().putClassMeta(m); c._h.meta = hm; } }
+      const m = metaOf(c), hm = st8(m);
+      if (teacher) { if (hm !== c._h.meta) { await Cl().putClassMeta(m); c._h.meta = hm; c._h.qorder = st8(m.qorder); } }
+      else { const ho = st8(m.qorder); if (c._h.qorder !== undefined && ho !== c._h.qorder) { await Cl().updateQorder(c.id, m.qorder); c._h.qorder = ho; } } // 學生：只能更新題目順序
       for (const q of c.qs) {
         const qh = c._h.q[q.id] || (c._h.q[q.id] = { cfg: "", res: {} });
-        if (teacher) { const hc = st8({ title: q.title, type: q.type, cfg: q.cfg }); if (hc !== qh.cfg) { await Cl().setQuestionConfig(c.id, q); qh.cfg = hc; } }
+        const hc = st8({ title: q.title, type: q.type, cfg: q.cfg }); if (hc !== qh.cfg) { await Cl().setQuestionConfig(c.id, q); qh.cfg = hc; } // 題目內容：所有人都能改
         for (const g of Object.keys(q.res)) { const hr = st8(q.res[g]); if (hr !== qh.res[g]) { await Cl().updateRes(c.id, q.id, g, q.res[g]); qh.res[g] = hr; } }
       }
-      if (teacher) for (const id of Object.keys(c._h.q)) if (!c.qs.some((q) => q.id === id)) { await Cl().deleteQuestion(c.id, id); delete c._h.q[id]; }
+      for (const id of Object.keys(c._h.q)) if (!c.qs.some((q) => q.id === id)) { await Cl().deleteQuestion(c.id, id); delete c._h.q[id]; }
       setSync("ok");
     } catch (e) { console.warn("push failed", e); setSync("err", e); }
   }
@@ -427,9 +427,9 @@
       const d = ch.data; let q = c.qs.find((x) => x.id === ch.id);
       if (!q) { q = SM.Q.create(d.type || "spectrum", d.title, d.cfg); q.id = ch.id; q.res = {}; c.qs.push(q); touched = true; }
       const qh = c._h.q[q.id] || (c._h.q[q.id] = { cfg: "", res: {} });
-      if (d.type) { // 題目設定：學生沒有寫入權，一律以雲端為準；教師若有尚未推送的本機修改則以本機為準
+      if (d.type) { // 題目設定：若本機有尚未推送的修改以本機為準，否則以雲端為準
         const hd = st8({ title: d.title, type: d.type, cfg: d.cfg }), hl = st8({ title: q.title, type: q.type, cfg: q.cfg });
-        const dirty = SM.Auth.isTeacher() && qh.cfg !== "" && hl !== qh.cfg;
+        const dirty = qh.cfg !== "" && hl !== qh.cfg;
         if (!dirty) { if (hd !== hl) { q.title = d.title; q.type = d.type; q.cfg = d.cfg; touched = true; } qh.cfg = hd; }
       }
       for (const g of Object.keys(d.res || {})) {
@@ -441,7 +441,7 @@
     }
     const firstSync = !c._synced; if (firstSync) { c._synced = true; touched = true; }
     if (c._qorder) sortQs(c);
-    if (c._metaRemote) c._h.meta = st8(metaOf(c)); // 雲端已有這班的設定才視為已同步；新建的班級要等著被推送
+    if (c._metaRemote) { c._h.meta = st8(metaOf(c)); c._h.qorder = st8(c.qs.map((q) => q.id)); } // 雲端已有這班的設定才視為已同步；新建的班級要等著被推送
     if (touched) { loadAll(); const i = S.qs.findIndex((q) => q.id === curId); S.cur = Math.max(0, i >= 0 ? i : Math.min(S.cur, S.qs.length - 1)); if (!S.qs.length) S.cur = 0; renderList(); if (Q()) { renderPanel(); drawOv(); refresh(true); } else { $("chart").getContext("2d").clearRect(0, 0, 9999, 9999); } }
     setSync("ok"); if (firstSync) scheduleSave(); // 補推在等待首次同步期間產生的本機變更
   }

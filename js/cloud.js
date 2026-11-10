@@ -44,6 +44,7 @@
 
   /* ---- 寫入 ---- */
   Cloud.putClassMeta = (m) => Cloud.db.collection("classes").doc(m.id).set(clean(m));
+  Cloud.updateQorder = (cid, list) => Cloud.db.collection("classes").doc(cid).update({ qorder: list }); // 題目順序（學生也能改）
   Cloud.setQuestionConfig = (cid, q) => Cloud.db.collection("classes").doc(cid).collection("questions").doc(q.id).set(clean({ id: q.id, title: q.title, type: q.type, cfg: q.cfg }), { merge: true });
   Cloud.updateRes = (cid, qid, g, val) => {
     const ref = Cloud.db.collection("classes").doc(cid).collection("questions").doc(qid), v = clean(val);

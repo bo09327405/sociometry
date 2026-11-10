@@ -37,9 +37,10 @@
     watchClasses: (cb) => watch(() => Object.fromEntries(Object.entries(load().classes).map(([id, c]) => [id, c.meta])), cb),
     watchQuestions: (cid, cb) => watch(() => (load().classes[cid] || { questions: {} }).questions, cb),
     putClassMeta: async (m) => { if (!isT()) return deny(); const d = load(); d.classes[m.id] = d.classes[m.id] || { meta: null, questions: {} }; d.classes[m.id].meta = sortKeys(JSON.parse(JSON.stringify(m))); save(d); local(m.id); },
-    setQuestionConfig: async (cid, q) => { if (!isT()) return deny(); const d = load(), c = d.classes[cid]; if (!c) return Promise.reject(new Error("no class")); c.questions[q.id] = sortKeys(Object.assign({}, c.questions[q.id], JSON.parse(JSON.stringify({ id: q.id, title: q.title, type: q.type, cfg: q.cfg })))); save(d); local(q.id); },
+    setQuestionConfig: async (cid, q) => { const d = load(), c = d.classes[cid]; if (!c) return Promise.reject(new Error("no class")); c.questions[q.id] = sortKeys(Object.assign({}, c.questions[q.id], JSON.parse(JSON.stringify({ id: q.id, title: q.title, type: q.type, cfg: q.cfg })))); save(d); local(q.id); },
     updateRes: async (cid, qid, g, val) => { const d = load(), c = d.classes[cid]; if (!c || !c.questions[qid]) return isT() ? Promise.reject(new Error("not-found")) : deny(); const q = c.questions[qid]; q.res = q.res || {}; q.res[g] = JSON.parse(JSON.stringify(val)); c.questions[qid] = sortKeys(q); save(d); local(qid); },
-    deleteQuestion: async (cid, qid) => { if (!isT()) return deny(); const d = load(); if (d.classes[cid]) delete d.classes[cid].questions[qid]; save(d); local(qid); },
+    updateQorder: async (cid, list) => { const d = load(), c = d.classes[cid]; if (!c) return Promise.reject(new Error("no class")); c.meta.qorder = list; save(d); local(cid); },
+    deleteQuestion: async (cid, qid) => { const d = load(); if (d.classes[cid]) delete d.classes[cid].questions[qid]; save(d); local(qid); },
     deleteClass: async (cid) => { if (!isT()) return deny(); const d = load(); delete d.classes[cid]; save(d); notify(); },
   };
   SM.fakeCloud = { reset: () => localStorage.removeItem(KEY), dump: load, setUser: (u) => (u ? sessionStorage.setItem("fakeUser", u) : sessionStorage.removeItem("fakeUser")) };

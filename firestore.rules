@@ -1,8 +1,8 @@
 // Firestore 安全規則範本。貼到 Firebase 主控台 → Firestore Database → 規則，把 TEACHER_EMAIL_1 / 2 換成教師的 Google email（小寫），按「發布」。
 // 請不要把真實 email 寫進公開 repo 的這個檔案。
 //
-// 學生（不用登入）：可以讀取全部；只能「更新題目文件的 res（各組結果）」。
-// 教師（Google 登入、email 已驗證、在名單內）：可以新增／刪除／修改班級與題目。
+// 學生（不用登入）：可讀取全部；可新增／修改／刪除「題目」與各組結果；可更新班級的題目順序（qorder）。
+// 教師（Google 登入、email 已驗證、在名單內）：另外可以新增／改名／刪除班級、改組數與地板校準。
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -15,15 +15,16 @@ service cloud.firestore {
 
     match /classes/{classId} {
       allow read: if true;
-      allow create, update, delete: if isTeacher();
+      allow create, delete: if isTeacher();
+      allow update: if isTeacher()
+        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['qorder']);
 
       match /questions/{questionId} {
         allow read: if true;
-        allow create, delete: if isTeacher();
-        allow update: if isTeacher()
-          || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['res'])
-              && request.resource.data.res.keys().hasOnly(['1','2','3','4','5','6','7','8','all','merge'])
-              && request.resource.data.res.size() <= 10);
+        allow delete: if true;
+        allow create, update: if request.resource.data.keys().hasOnly(['id','title','type','cfg','res'])
+          && (!('res' in request.resource.data)
+              || request.resource.data.res.keys().hasOnly(['1','2','3','4','5','6','7','8','all','merge']));
       }
     }
 
