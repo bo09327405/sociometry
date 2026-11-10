@@ -1,7 +1,7 @@
 // Firestore 安全規則範本。貼到 Firebase 主控台 → Firestore Database → 規則，把 TEACHER_EMAIL_1 / 2 換成教師的 Google email（小寫），按「發布」。
 // 請不要把真實 email 寫進公開 repo 的這個檔案。
 //
-// 學生（不用登入）：可讀取全部；可新增／修改／刪除「題目」與各組結果；可更新班級的題目順序（qorder）。
+// 學生（不用登入）：可讀取全部；可新增／修改「題目」與各組結果；不能刪除題目、不能調整題目順序。
 // 教師（Google 登入、email 已驗證、在名單內）：另外可以新增／改名／刪除班級、改組數與地板校準。
 // live 指標：任何人可讀寫（內容僅供跟隨投影頁切換畫面）。
 rules_version = '2';
@@ -17,19 +17,18 @@ service cloud.firestore {
     match /classes/{classId} {
       allow read: if true;
       allow create, delete: if isTeacher();
-      allow update: if isTeacher()
-        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['qorder']);
+      allow update: if isTeacher();
 
       match /questions/{questionId} {
         allow read: if true;
-        allow delete: if true;
+        allow delete: if isTeacher();
         allow create, update: if request.resource.data.keys().hasOnly(['id','title','type','cfg','res'])
           && (!('res' in request.resource.data)
               || request.resource.data.res.keys().hasOnly(['1','2','3','4','5','6','7','8','all','merge']));
       }
     }
 
-    // 「正在操作」指標：跟隨投影頁讀取；任何裝置掃描／校正／鎖定時寫入（只有班級/題目/組別代號、裝置名、時間）
+    // On Air 指標：跟隨投影頁讀取；按下「On Air」的那台電腦寫入（只有班級/題目/組別代號、裝置名、時間；裝置名尾碼 #off 表示關閉）
     match /live/{docId} {
       allow read: if true;
       allow create, update: if request.resource.data.keys().hasOnly(['classId','qid','group','by','ts']);

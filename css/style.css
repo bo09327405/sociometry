@@ -83,3 +83,6 @@ button,select,input,summary{touch-action:manipulation;-webkit-tap-highlight-colo
 @media (max-height:900px),(max-width:1100px){header{position:static}}
 /* 觸控裝置：加大點擊範圍 */
 @media (pointer:coarse){button,select,input[type=text],input[type=number]{min-height:44px}#qlist li{padding:11px 8px}button.sm{padding:6px 12px}}
+
+#bAir.on{background:#c62828;color:#fff;outline:2px solid #ff8a80;font-weight:700}
+#airInfo{display:inline-block;min-width:11em;font-size:12px}

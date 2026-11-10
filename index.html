@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>社會計量站位辨識</title>
-<link rel="stylesheet" href="css/style.css?v=20261110i">
+<link rel="stylesheet" href="css/style.css?v=20261110j">
 </head>
 <body>
 <header>
@@ -21,7 +21,7 @@
   <button id="bSnap">存快照</button>
   <span class="sep"></span>
   <button id="bProj">投影視窗</button>
-  <button id="bLive" title="雲端同步開啟時：自動顯示任何電腦正在操作的那一題">跟隨投影</button>
+  <button id="bLive" title="開新視窗，顯示目前 On Air 那台電腦正在操作的畫面（放在投影幕上）">跟隨投影</button>
   <button id="bCsv">匯出 CSV</button>
 </header>
 <div id="classbar">
@@ -36,7 +36,7 @@
   <span class="sep"></span>
   <button id="cExp" class="sm">匯出本班</button><button id="cBackup" class="sm">全部備份</button><button id="cImp" class="sm">匯入備份</button><input id="cFile" type="file" accept=".json" hidden><button id="cCsvAll" class="sm">全部班級 CSV</button>
   <span id="calibInfo" class="mute"></span>
-  <label title="自動：最近有掃描／校正／鎖定才讓跟隨投影換題">投影跟隨 <select id="liveMode"><option value="auto" selected>自動</option><option value="always">永遠跟隨我</option><option value="off">不跟隨</option></select></label>
+  <button id="bAir" title="開啟後，這台電腦就是投影的主要操作電腦：其他裝置的「跟隨投影」會同步顯示這台正在操作的班級／題目／組別。預設關閉">● On Air：關</button><span id="airInfo" class="mute"></span>
   <span id="syncInfo" class="mute"></span>
   <span id="saveInfo" class="mute"></span>
   <span id="authBox" class="authbox"></span>
@@ -99,17 +99,17 @@
 </main>
 <canvas id="viewc"></canvas>
 
-<script src="js/util.js?v=20261110i"></script>
-<script src="js/charts.js?v=20261110i"></script>
-<script src="js/modes.js?v=20261110i"></script>
-<script src="js/stabilizer.js?v=20261110i"></script>
-<script src="js/detector.js?v=20261110i"></script>
-<script src="js/cards.js?v=20261110i"></script>
-<script src="js/config.js?v=20261110i"></script>
-<script src="js/store.js?v=20261110i"></script>
-<script src="js/cloud.js?v=20261110i"></script>
-<script src="js/auth.js?v=20261110i"></script>
-<script src="js/questions.js?v=20261110i"></script>
-<script src="js/app.js?v=20261110i"></script>
+<script src="js/util.js?v=20261110j"></script>
+<script src="js/charts.js?v=20261110j"></script>
+<script src="js/modes.js?v=20261110j"></script>
+<script src="js/stabilizer.js?v=20261110j"></script>
+<script src="js/detector.js?v=20261110j"></script>
+<script src="js/cards.js?v=20261110j"></script>
+<script src="js/config.js?v=20261110j"></script>
+<script src="js/store.js?v=20261110j"></script>
+<script src="js/cloud.js?v=20261110j"></script>
+<script src="js/auth.js?v=20261110j"></script>
+<script src="js/questions.js?v=20261110j"></script>
+<script src="js/app.js?v=20261110j"></script>
 </body>
 </html>

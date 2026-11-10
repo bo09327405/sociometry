@@ -27,7 +27,7 @@
   /* ================= 狀態 ================= */
   const S = {
     src: null, sw: 0, sh: 0, srcType: "", corners: [], H: null, Hinv: null, floor: { w: 8, d: 6 },
-    live: isLive, follow: null, liveMode: "auto", lastOp: 0, lastPub: "", pubT: 0, devName: "", tool: null, qs: [], cur: 0, cls: null, classes: [], group: "1", meta: { template: null }, noSave: false, calibDirty: false, filter: "", loop: false, busy: false, boxes: [], boxMeta: null, undo: [],
+    live: isLive, follow: null, onAir: false, airMine: false, airDoc: null, lastPub: "", pubT: 0, devName: "", tool: null, qs: [], cur: 0, cls: null, classes: [], group: "1", meta: { template: null }, noSave: false, calibDirty: false, filter: "", loop: false, busy: false, boxes: [], boxMeta: null, undo: [],
     settings: { model: "yolov10s", tiles: "auto", thr: 0.25, foot: "bottom", stab: 5, showBox: false },
     stab: new SM.Stabilizer(5), drag: null, projWin: null, saveTimer: null,
   };
@@ -239,11 +239,11 @@
     postView(v); scheduleSave();
   }
   function liveDraw(v) {
-    const cv = $("viewc"), WAIT = "等待操作電腦開始掃描…"; let wait = WAIT; SM.Charts.fitCanvas(cv);
+    const cv = $("viewc"), WAIT = "目前沒有電腦 On Air（請在操作電腦按「● On Air」）"; let wait = WAIT; SM.Charts.fitCanvas(cv);
     if (!S.follow) v = null;
     else if (v && !(S.sw > 0)) { v = null; wait = "這班尚未校準地板（或操作電腦還沒存校準），無法換算人數。"; } // 沒有畫面大小就算不出位置，寧可不顯示也不要顯示成 0
     if (v && !v.counts.every(Number.isFinite)) v = null;
-    if (v) v.sub = (S.cls ? S.cls.name : "") + "・" + SM.Q.groupName(S.group) + (S.follow && S.follow.by ? "　（操作裝置 " + S.follow.by.replace(/#S$/, "") + (/#S$/.test(S.follow.by) ? "・連續掃描中" : "") + "）" : "");
+    if (v) v.sub = (S.cls ? S.cls.name : "") + "・" + SM.Q.groupName(S.group) + (S.follow && S.follow.by ? "　（On Air：" + S.follow.by + (Date.now() - S.followRecv > 40000 ? "・訊號中斷？" : "") + "）" : "");
     SM.Charts.smooth(cv, v, wait);
   }
   function postView(v) {
@@ -299,10 +299,11 @@
   function selectQ(i) { if (S.loop) { S.loop = false; $("bLoop").classList.remove("on"); } S.cur = Math.max(0, Math.min(S.qs.length - 1, i)); S.undo = []; S.stab.reset(); S.boxes = []; if (S.tool === "center") setTool(null); renderList(true); renderPanel(); drawOv(); refresh(); publishLive(false); }
   $("qTitle").oninput = (e) => { Q().title = e.target.value; refresh(true); renderList(); };
   $("qAdd").onclick = () => { S.qs.push(SM.Q.create("spectrum", "新題目")); selectQ(S.qs.length - 1); };
-  $("qDup").onclick = () => { const o = Q(); if (!o) return noQ(); const c = SM.Q.create(o.type, o.title + "（複製）", JSON.parse(JSON.stringify(o.cfg))); S.qs.splice(S.cur + 1, 0, c); selectQ(S.cur + 1); };
-  $("qDel").onclick = () => { if (!Q()) return noQ(); if (!confirm("刪除這一題（含快照）？")) return; S.qs.splice(S.cur, 1); if (!S.qs.length) S.qs.push(SM.Q.create("spectrum", "新題目")); selectQ(Math.min(S.cur, S.qs.length - 1)); };
-  $("qUp").onclick = () => { if (S.cur > 0) { [S.qs[S.cur - 1], S.qs[S.cur]] = [S.qs[S.cur], S.qs[S.cur - 1]]; selectQ(S.cur - 1); } };
-  $("qDn").onclick = () => { if (S.cur < S.qs.length - 1) { [S.qs[S.cur + 1], S.qs[S.cur]] = [S.qs[S.cur], S.qs[S.cur + 1]]; selectQ(S.cur + 1); } };
+  $("qDup").onclick = () => { const o = Q(); if (!o) return noQ(); const c = SM.Q.create(o.type, o.title + "（複製）", JSON.parse(JSON.stringify(o.cfg))); const at = cloudOn() && !SM.Auth.isTeacher() ? S.qs.length : S.cur + 1; S.qs.splice(at, 0, c); selectQ(at); }; // 學生不能調整順序，複製的題目放最後
+  const structOk = () => { if (!cloudOn() || SM.Auth.isTeacher()) return true; msg("刪除題目、調整題目順序需要教師登入。"); return false; };
+  $("qDel").onclick = () => { if (!structOk()) return; if (!Q()) return noQ(); if (!confirm("刪除這一題（含快照）？")) return; S.qs.splice(S.cur, 1); if (!S.qs.length) S.qs.push(SM.Q.create("spectrum", "新題目")); selectQ(Math.min(S.cur, S.qs.length - 1)); };
+  $("qUp").onclick = () => { if (!structOk()) return; if (S.cur > 0) { [S.qs[S.cur - 1], S.qs[S.cur]] = [S.qs[S.cur], S.qs[S.cur - 1]]; selectQ(S.cur - 1); } };
+  $("qDn").onclick = () => { if (!structOk()) return; if (S.cur < S.qs.length - 1) { [S.qs[S.cur + 1], S.qs[S.cur]] = [S.qs[S.cur], S.qs[S.cur + 1]]; selectQ(S.cur + 1); } };
   $("qReset").onclick = () => { if (!guard()) return; if (!confirm("還原成範例題組？本班目前所有題目、各組結果與快照都會被取代。")) return; S.qs = SM.Q.sampleSet(); S.cls.qs = S.qs; selectQ(0); };
   $("qExp").onclick = () => SM.Q.download("社會計量題組.json", JSON.stringify(SM.Q.configsOf(S.qs), null, 1), "application/json");
   $("qImp").onclick = () => { if (guard()) $("qFile").click(); };
@@ -367,24 +368,38 @@
   addEventListener("pagehide", () => saveClass());
 
   /* ================= 「正在操作」指標：讓跟隨投影頁知道要顯示哪班哪題哪組 ================= */
-  function publishLive(op) {
-    if (!cloudOn() || S.live || S.liveMode === "off" || !S.cls || !S.cls._cloud || !Q() || !S.ready) return;
-    const now = Date.now(); if (op) S.lastOp = now;
-    if (S.liveMode === "auto" && !op && now - S.lastOp > 180000) return; // 自動：最近 3 分鐘有掃描／校正／鎖定才跟隨換題
-    const key = S.cls.id + "|" + Q().id + "|" + S.group + "|" + (S.loop ? "s" : "");
-    if (key === S.lastPub && now - S.pubT < 5000) return; // 同一目標最多每 5 秒重發一次
+  function publishLive(op, off) {
+    if (!cloudOn() || S.live || !S.cls || !S.cls._cloud || !Q() || !S.ready) return;
+    if (!S.onAir && !off) return; // On Air 預設關閉：沒開的裝置完全不會影響投影
+    const now = Date.now(), key = S.cls.id + "|" + Q().id + "|" + S.group + "|" + (off ? "off" : "");
+    if (!off && key === S.lastPub && now - S.pubT < 5000) return; // 同一目標最多每 5 秒重發一次（也當心跳）
     S.lastPub = key; S.pubT = now;
-    Cl().setLive({ classId: S.cls.id, qid: Q().id, group: S.group, by: S.devName + (S.loop ? "#S" : ""), ts: now }).catch((e) => { console.warn("live pointer", e); }); // 失敗（例如規則尚未更新）不影響結果同步，只是投影不會自動跟隨
+    const p = Cl().setLive({ classId: S.cls.id, qid: Q().id, group: S.group, by: S.devName + (off ? "#off" : ""), ts: now }); // 規則只允許固定欄位：關閉時以裝置名尾碼 #off 表示
+    p.then(() => { if (S.onAir && !off) S.airMine = true; }).catch((e) => { console.warn("live pointer", e); });
   }
+  const offAir = (m) => { S.onAir = false; S.airMine = false; clearInterval(S.airTimer); $("bAir").classList.remove("on"); $("bAir").textContent = "● On Air：關"; if (m) msg(m); airInfo(); };
+  function airInfo() {
+    const d = S.airDoc, on = d && !/#(off|S)$/.test(d.by || ""), el = $("airInfo"); if (!el) return;
+    el.textContent = S.onAir ? "這台正在 On Air" : on ? "On Air：" + d.by : "目前沒有人 On Air";
+  }
+  function onAirSeen(d) {
+    S.airDoc = d;
+    if (S.onAir && S.airMine && d && d.by !== S.devName && !/#(off|S)$/.test(d.by || "")) { offAir("已由「" + d.by + "」接手 On Air，這台已自動關閉。"); return; }
+    airInfo();
+  }
+  $("bAir").onclick = () => {
+    if (!cloudOn()) return msg("On Air 需要雲端同步（目前是僅本機模式；本機的「投影視窗」不受影響）。");
+    if (S.onAir) { publishLive(true, true); return offAir("已關閉 On Air：跟隨投影會顯示等待畫面。"); }
+    if (!S.cls || !S.cls._cloud) return msg("請先選擇一個已同步的班級。");
+    const d = S.airDoc; if (d && !/#(off|S)$/.test(d.by || "") && d.by !== S.devName && Date.now() - d.ts < 30000 && !confirm("「" + d.by + "」目前正在 On Air。要由這台接手嗎？（對方會自動關閉）")) return;
+    S.onAir = true; S.airMine = false; S.lastPub = ""; $("bAir").classList.add("on"); $("bAir").textContent = "● On Air：開"; publishLive(true); airInfo();
+    clearInterval(S.airTimer); S.airTimer = setInterval(() => publishLive(true), 8000); // 心跳：投影頁據此判斷這台還在線
+    msg("On Air 已開啟：其他裝置的「跟隨投影」會同步顯示這台正在操作的班級／題目／組別。離開前請記得關閉。");
+  };
+  addEventListener("pagehide", () => { if (S.onAir) publishLive(true, true); });
   /* 跟隨投影頁：依雲端指標切換班級／組別／題目 */
   async function applyFollow() {
-    let f = S.follow; if (!f || !S.live) return;
-    // 多台電腦輪流操作時，指標會來回跳：同一目標至少停留 6 秒才換，避免投影畫面一直切題
-    const k = f.classId + "|" + f.qid + "|" + f.group, now = Date.now();
-    if (S.fk !== k) {
-      if (S.fk && now - S.fkT < 6000) { clearTimeout(S.fkTimer); S.fkTimer = setTimeout(applyFollow, 6000 - (now - S.fkT) + 50); return; }
-      S.fk = k; S.fkT = now;
-    }
+    const f = S.follow; if (!f || !S.live) return;
     const c = S.classes.find((x) => x.id === f.classId && x._cloud); if (!c) return;
     if (!S.cls || S.cls.id !== c.id) { await switchClass(c.id); return; } // 切班後等第一次同步完成再套用
     if (!c._synced) return;
@@ -397,7 +412,7 @@
      但不能動「班級層級」的設定：新增／改名／刪除班級、組數、地板校準與大小（伺服器規則同樣會擋） */
   function lockCfg(lock) {
     lock = lock && cloudOn();
-    ["grpN", "floorW", "floorD", "bRecal", "bCal"].forEach((id) => { if ($(id)) { $(id).disabled = lock; $(id).title = lock ? "需要教師登入" : ""; } });
+    ["grpN", "floorW", "floorD", "bRecal", "bCal", "qDel", "qUp", "qDn"].forEach((id) => { if ($(id)) { $(id).disabled = lock; $(id).title = lock ? "需要教師登入" : ""; } });
     $("cUpload").hidden = !(cloudOn() && SM.Auth.isTeacher() && S.classes.some((c) => !c._cloud));
   }
   const GATED = ["cCalAll", "cNew", "cRen", "cDel", "cTplApply", "cImp", "qReset", "qImp"];
@@ -443,7 +458,6 @@
     try {
       const m = metaOf(c), hm = st8(m);
       if (teacher) { if (hm !== c._h.meta) { await Cl().putClassMeta(m); c._h.meta = hm; c._h.qorder = st8(m.qorder); } }
-      else { const ho = st8(m.qorder); if (c._h.qorder !== undefined && ho !== c._h.qorder) { await Cl().updateQorder(c.id, m.qorder); c._h.qorder = ho; } } // 學生：只能更新題目順序
       for (const q of c.qs) {
         const qh = c._h.q[q.id] || (c._h.q[q.id] = { cfg: "", res: {} });
         const hc = st8({ title: q.title, type: q.type, cfg: q.cfg }); if (hc !== qh.cfg) { await Cl().setQuestionConfig(c.id, q); qh.cfg = hc; } // 題目內容：所有人都能改
@@ -458,7 +472,7 @@
     } catch (e) { console.warn("push failed", e); setSync("err", e); }
   }
   const isEmptyRes = (r) => !r || (!(r.pts || []).length && !(r.hidden || []).length && !r.locked && !(r.snaps || []).length && !(r.cardPts || []).length && !(r.cardCount || []).some((x) => x) && !(r.cardAdj || []).some((x) => x));
-  function sortQs(c) { const o = c._qorder; if (!o) return; const rank = (q) => { const i = o.indexOf(q.id); return i < 0 ? 1e9 : i; }; c.qs.sort((a, b) => rank(a) - rank(b)); }
+  function sortQs(c) { const o = c._qorder; if (!o) return; const rank = (q) => { const i = o.indexOf(q.id); return i < 0 ? 1e9 : i; }; c.qs.sort((a, b) => rank(a) - rank(b) || (a.id < b.id ? -1 : 1)); }
 
   /* 套用遠端的班級清單／設定 */
   function onRemoteClasses(changes) {
@@ -468,7 +482,7 @@
       const d = ch.data; let c = S.classes.find((x) => x.id === ch.id);
       if (!c) { c = { id: ch.id, groups: 4, created: d.created || Date.now(), corners: [], sz: null, floor: { w: 8, d: 6 }, cur: 0, group: "1", qs: [], _h: { meta: "", q: {} } }; S.classes.push(c); }
       c._cloud = true; c._metaRemote = true; c.name = d.name; c.groups = d.groups || 4; c.created = d.created || c.created; c.corners = Cl().cornersIn(d.corners); c.sz = d.sz || null; if (d.floor) { if (c === S.cls) { S.floor.w = d.floor.w; S.floor.d = d.floor.d; } else c.floor = d.floor; } c._qorder = d.qorder || null;
-      if (c === S.cls && c._synced) { if (c._h.qorder === undefined || st8(c.qs.map((q) => q.id)) === c._h.qorder) { sortQs(c); c._h.qorder = st8(c.qs.map((q) => q.id)); c._h.meta = st8(metaOf(c)); } } // 本機有尚未推送的順序修改時，不被舊快照蓋掉
+      if (c === S.cls && c._synced) { if (!SM.Auth.isTeacher() || c._h.qorder === undefined || st8(c.qs.map((q) => q.id)) === c._h.qorder) { sortQs(c); c._h.qorder = st8(c.qs.map((q) => q.id)); c._h.meta = st8(metaOf(c)); } } // 本機有尚未推送的順序修改時，不被舊快照蓋掉
     }
     S.classes.sort((a, b) => a.created - b.created);
     if (activeGone || (S.cls && !visibleClasses().includes(S.cls))) { S.cls = null; const n = visibleClasses()[0]; if (n) switchClass(n.id); else syncClassBar(); return; }
@@ -654,23 +668,22 @@
     if (P.get("img")) loadImg(P.get("img"));
     S.ready = true;
     if (cloudOn()) await startCloud(); setSync("ok"); applyAuth(); renderPanel();
+    if (cloudOn() && !isLive) Cl().watchLive(onAirSeen, () => {});
     if (isLive) {
       addEventListener("dblclick", () => { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {}); });
       if (!cloudOn()) { liveDraw(null); msg("跟隨投影需要雲端同步（請確認 js/config.js 的 firebase 設定與網路）。"); return; }
       addEventListener("resize", () => { if (Q()) refresh(true); else liveDraw(null); });
+      setInterval(() => { if (Q() && S.follow) refresh(true); }, 10000); // 更新「訊號中斷」提示
       Cl().watchLive((d) => {
-        // 有裝置正在連續掃描時，其他裝置的一般操作（點選別題、加點）不搶走投影；掃描裝置每 5 秒會重發指標，20 秒沒再收到才放開
-        const isScan = (x) => !!x && /#S$/.test(x.by || "");
-        if (d && isScan(d)) { S.scanF = d; S.scanT = Date.now(); }
-        else if (d && S.scanF && Date.now() - S.scanT < 20000 && (d.by || "").replace(/#S$/, "") !== S.scanF.by.replace(/#S$/, "")) d = S.scanF;
-        S.follow = d; applyFollow();
+        S.followRecv = Date.now();
+        S.follow = d && !/#(off|S)$/.test(d.by || "") ? d : null; // 沒有人 On Air → 等待畫面
+        applyFollow(); if (!S.follow) liveDraw(null);
       }, (e) => setSync("err", e));
       liveDraw(Q() && S.follow ? buildView(Q()) : null);
     }
   }
   try { S.devName = sessionStorage.getItem("sm.dev") || ("裝置" + Math.random().toString(36).slice(2, 5).toUpperCase()); sessionStorage.setItem("sm.dev", S.devName); } catch (e) { S.devName = "裝置"; }
-  $("liveMode").onchange = (e) => { S.liveMode = e.target.value; if (S.liveMode === "always") publishLive(true); };
-  $("bLive").onclick = () => { if (!cloudOn()) return msg("跟隨投影需要雲端同步（目前是僅本機模式）。"); window.open(location.href.split("#")[0].split("?")[0] + "#live", "sociometry_live", "popup,width=1280,height=720"); msg("已開啟跟隨投影：它會自動顯示「任何電腦正在操作」的那一題，連續掃描的結果即時更新。把它拖到投影幕並雙擊全螢幕；這個頁面不用登入。"); };
+  $("bLive").onclick = () => { if (!cloudOn()) return msg("跟隨投影需要雲端同步（目前是僅本機模式）。"); window.open(location.href.split("#")[0].split("?")[0] + "#live", "sociometry_live", "popup,width=1280,height=720"); msg("已開啟跟隨投影：它只顯示「On Air」那台電腦正在操作的畫面（請在操作電腦按「● On Air」）。把它拖到投影幕並雙擊全螢幕；這個頁面不用登入。"); };
   window.SMApp = { S, scanOnce, refresh, buildView, selectQ, rebuildH, drawOv, toFloor, snapshot, setGroup, switchClass, addClasses, saveClass, plainNow, boot: () => S.bootP };
   S.bootP = boot();
 })();
