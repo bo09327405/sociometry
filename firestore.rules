@@ -31,7 +31,8 @@ service cloud.firestore {
     // On Air 指標：跟隨投影頁讀取；按下「On Air」的那台電腦寫入（只有班級/題目/組別代號、裝置名、時間；裝置名尾碼 #off 表示關閉）
     match /live/{docId} {
       allow read: if true;
-      allow create, update: if request.resource.data.keys().hasOnly(['classId','qid','group','by','ts']);
+      allow create, update: if request.resource.data.keys().hasOnly(['classId','qid','group','by','ts'])
+        && request.resource.data.by.matches('air[|].*'); // 只收 On Air 版寫的（舊版網頁會被拒絕）
       allow delete: if isTeacher();
     }
 
