@@ -31,6 +31,7 @@
   };
   const Q = () => S.qs[S.cur];
   const ro = () => S.group === "merge"; // 合併檢視是唯讀
+  const noQ = () => { if (Q()) return false; msg("這個班級還沒有題目，請先新增題目。"); return true; };
   const stopLoop = () => { S.loop = false; $("bLoop").classList.remove("on"); };
   const msg = (t) => { $("msg").textContent = t || ""; };
   const kScale = () => Math.max(1, S.sw / 900); // 影像像素 ↔ 畫面大小的比例，讓線條/圓點看起來大小固定
@@ -126,13 +127,13 @@
   $("bRecal").onclick = () => { if (!S.sw) return; S.corners = []; rebuildH(); setTool("calib"); drawOv(); refresh(); };
   $("bEdit").onclick = () => { if (!S.sw) return msg("請先開啟鏡頭或載入照片。"); setTool(S.tool === "edit" ? null : "edit"); };
 
-  function pushUndo() { const q = Q(); S.undo.push(JSON.stringify({ id: q.id, pts: q.pts, hidden: q.hidden })); if (S.undo.length > 40) S.undo.shift(); }
+  function pushUndo() { const q = Q(); if (!q) return; S.undo.push(JSON.stringify({ id: q.id, pts: q.pts, hidden: q.hidden })); if (S.undo.length > 40) S.undo.shift(); }
   function undo() { const s = S.undo.pop(); if (!s) return msg("沒有可復原的動作。"); const d = JSON.parse(s), i = S.qs.findIndex((q) => q.id === d.id); if (i < 0) return; S.cur = i; Q().pts = d.pts; Q().hidden = d.hidden; refresh(); renderList(); }
   $("bUndo").onclick = undo;
   const hitR = () => 16 * kScale();
 
   $("ov").addEventListener("pointerdown", (e) => {
-    if (!S.sw) return; const [x, y] = evXY(e), q = Q(), k = kScale();
+    if (!S.sw || !Q()) return; const [x, y] = evXY(e), q = Q(), k = kScale();
     if (S.tool === "sample") { const left = SM.Cards.sampleAt(S.src, x, y); if (left < 0) { setTool(null); msg("色卡取樣完成，可以按「掃描」。"); } hint(); return; }
     if (S.tool === "center") { q.cfg.center = { x: toFloor(x, y)[0], y: toFloor(x, y)[1] }; setTool("edit"); renderPanel(); refresh(); msg("圓心已設定。"); return; }
     if (S.tool === "calib") {
@@ -172,7 +173,7 @@
   }
   function autoTiles(roi) { const r = roi[2] / roi[3]; return Math.max(1, Math.min(5, Math.ceil(r * 1.2))) + "x1"; }
   async function scanOnce(fromLoop) {
-    const q = Q(); if (!S.sw) return msg("請先開啟鏡頭或載入照片。"); if (S.busy) return;
+    const q = Q(); if (!q) return noQ(); if (!S.sw) return msg("請先開啟鏡頭或載入照片。"); if (S.busy) return;
     if (ro()) { msg("合併檢視是唯讀，請先切到某一組再掃描。"); stopLoop(); return; }
     if (q.locked) { msg("本題已鎖定。要重新掃描請先解除鎖定。"); S.loop = false; $("bLoop").classList.remove("on"); return; }
     S.busy = true; $("bScan").disabled = true;
@@ -254,22 +255,23 @@
     q.snaps.forEach((s, i) => d.append(h("div", {}, (i + 1) + ". " + (s.g ? SM.Q.groupName(s.g) + "｜" : "") + s.t + (s.locked ? "🔒" : "") + "｜共 " + s.total + "｜" + s.labels.map((l, j) => l + ":" + s.counts[j]).join("、"))));
   }
   function renderPanel() {
-    const q = Q(), tr = $("techRow"); tr.innerHTML = ""; $("qTitle").value = q.title;
+    const q = Q(), tr = $("techRow"); tr.innerHTML = ""; if (!q) { $("qTitle").value = ""; $("panel").innerHTML = ""; $("techHint").textContent = "（這個班級還沒有題目）"; return; }
+    $("qTitle").value = q.title;
     tr.append(h("label", {}, "技術"), ...["spectrum", "matrix", "distance", "cards"].map((t) => h("button", { class: q.type === t ? "on" : "", onclick: () => changeType(t), title: SM.Modes[t].en }, SM.Modes[t].name)));
     $("techHint").textContent = SM.Modes[q.type].en + "：" + SM.Modes[q.type].hint;
     const p = $("panel"); p.innerHTML = ""; p.append(...SM.Modes[q.type].panel(q, () => { drawOv(); refresh(); renderList(); }, null, App));
     if (SM.Auth && typeof lockCfg === "function") lockCfg(!SM.Auth.isTeacher());
   }
   function changeType(t) {
-    const q = Q(); if (q.type === t) return; if (q.locked) return msg("本題已鎖定，請先解除鎖定。");
+    const q = Q(); if (!q || q.type === t) return; if (q.locked) return msg("本題已鎖定，請先解除鎖定。");
     if (q.pts.length && !confirm("切換技術會保留圓點位置，但設定會重設為該技術的預設值。繼續？")) return;
     q.type = t; q.cfg = SM.Modes[t].defaults(); renderPanel(); drawOv(); refresh(); renderList();
   }
   function selectQ(i) { if (S.loop) { S.loop = false; $("bLoop").classList.remove("on"); } S.cur = Math.max(0, Math.min(S.qs.length - 1, i)); S.undo = []; S.stab.reset(); S.boxes = []; if (S.tool === "center") setTool(null); renderList(); renderPanel(); drawOv(); refresh(); }
   $("qTitle").oninput = (e) => { Q().title = e.target.value; refresh(true); renderList(); };
   $("qAdd").onclick = () => { S.qs.push(SM.Q.create("spectrum", "新題目")); selectQ(S.qs.length - 1); };
-  $("qDup").onclick = () => { const o = Q(), c = SM.Q.create(o.type, o.title + "（複製）", JSON.parse(JSON.stringify(o.cfg))); S.qs.splice(S.cur + 1, 0, c); selectQ(S.cur + 1); };
-  $("qDel").onclick = () => { if (!confirm("刪除這一題（含快照）？")) return; S.qs.splice(S.cur, 1); if (!S.qs.length) S.qs.push(SM.Q.create("spectrum", "新題目")); selectQ(Math.min(S.cur, S.qs.length - 1)); };
+  $("qDup").onclick = () => { const o = Q(); if (!o) return noQ(); const c = SM.Q.create(o.type, o.title + "（複製）", JSON.parse(JSON.stringify(o.cfg))); S.qs.splice(S.cur + 1, 0, c); selectQ(S.cur + 1); };
+  $("qDel").onclick = () => { if (!Q()) return noQ(); if (!confirm("刪除這一題（含快照）？")) return; S.qs.splice(S.cur, 1); if (!S.qs.length) S.qs.push(SM.Q.create("spectrum", "新題目")); selectQ(Math.min(S.cur, S.qs.length - 1)); };
   $("qUp").onclick = () => { if (S.cur > 0) { [S.qs[S.cur - 1], S.qs[S.cur]] = [S.qs[S.cur], S.qs[S.cur - 1]]; selectQ(S.cur - 1); } };
   $("qDn").onclick = () => { if (S.cur < S.qs.length - 1) { [S.qs[S.cur + 1], S.qs[S.cur]] = [S.qs[S.cur], S.qs[S.cur + 1]]; selectQ(S.cur + 1); } };
   $("qReset").onclick = () => { if (!guard()) return; if (!confirm("還原成範例題組？本班目前所有題目、各組結果與快照都會被取代。")) return; S.qs = SM.Q.sampleSet(); S.cls.qs = S.qs; selectQ(0); };
@@ -279,17 +281,17 @@
 
   /* 鎖定 / 快照 */
   function snapshot(note) {
-    const q = Q(), v = buildView(q), t = new Date().toLocaleTimeString("zh-TW", { hour12: false });
+    if (!Q()) return; const q = Q(), v = buildView(q), t = new Date().toLocaleTimeString("zh-TW", { hour12: false });
     q.snaps.push({ g: S.group, t, labels: v.labels, counts: v.counts, total: v.total, det: v.det, add: v.add, del: v.del, locked: q.locked, note: note || (q.type === "distance" ? "圓心=" + q.cfg.centerLabel + "；每圈" + q.cfg.step + "公尺" : "") });
     renderSnaps();
   }
   $("bLock").onclick = () => {
-    const q = Q(); if (ro()) return msg("合併檢視是唯讀；請切到某一組再鎖定。"); q.locked = !q.locked;
+    const q = Q(); if (!q) return noQ(); if (ro()) return msg("合併檢視是唯讀；請切到某一組再鎖定。"); q.locked = !q.locked;
     if (q.locked) { S.loop = false; $("bLoop").classList.remove("on"); snapshot(); msg("已鎖定本題並存入快照。按 → 進入下一題。"); } else msg("已解除鎖定。");
     refresh(); renderList();
   };
   $("bSnap").onclick = () => { snapshot(); msg("已存快照（共 " + Q().snaps.length + " 筆）。"); };
-  $("bClear").onclick = () => { const q = Q(); if (ro()) return msg("合併檢視是唯讀。"); if (q.locked) return msg("本題已鎖定。"); pushUndo(); q.pts = []; q.hidden = []; q.cardCount = [0, 0, 0, 0, 0]; q.cardPts = []; q.cardAdj = [0, 0, 0, 0, 0]; S.stab.reset(); drawOv(); refresh(); renderList(); };
+  $("bClear").onclick = () => { const q = Q(); if (!q) return noQ(); if (ro()) return msg("合併檢視是唯讀。"); if (q.locked) return msg("本題已鎖定。"); pushUndo(); q.pts = []; q.hidden = []; q.cardCount = [0, 0, 0, 0, 0]; q.cardPts = []; q.cardAdj = [0, 0, 0, 0, 0]; S.stab.reset(); drawOv(); refresh(); renderList(); };
   $("bCsv").onclick = () => { if (!SM.Q.snapCount([plainNow()])) return msg("本班還沒有快照。請先「④ 鎖定本題」或「存快照」。"); SM.Q.download("社會計量_" + S.cls.name + "_" + new Date().toISOString().slice(0, 10) + ".csv", SM.Q.toCSV([plainNow()])); msg("已匯出本班 CSV（UTF-8 含 BOM，Excel 可直接開啟）。"); };
 
   /* 投影視窗 */
@@ -388,12 +390,17 @@
       for (const q of c.qs) {
         const qh = c._h.q[q.id] || (c._h.q[q.id] = { cfg: "", res: {} });
         const hc = st8({ title: q.title, type: q.type, cfg: q.cfg }); if (hc !== qh.cfg) { await Cl().setQuestionConfig(c.id, q); qh.cfg = hc; } // 題目內容：所有人都能改
-        for (const g of Object.keys(q.res)) { const hr = st8(q.res[g]); if (hr !== qh.res[g]) { await Cl().updateRes(c.id, q.id, g, q.res[g]); qh.res[g] = hr; } }
+        for (const g of Object.keys(q.res)) {
+          const hr = st8(q.res[g]); if (hr === qh.res[g]) continue;
+          if (qh.res[g] === undefined && isEmptyRes(q.res[g])) continue; // 雲端從來沒有、本機也是空的 → 不用寫（否則會蓋掉別人稍後存的資料）
+          await Cl().updateRes(c.id, q.id, g, q.res[g]); qh.res[g] = hr;
+        }
       }
       for (const id of Object.keys(c._h.q)) if (!c.qs.some((q) => q.id === id)) { await Cl().deleteQuestion(c.id, id); delete c._h.q[id]; }
       setSync("ok");
     } catch (e) { console.warn("push failed", e); setSync("err", e); }
   }
+  const isEmptyRes = (r) => !r || (!(r.pts || []).length && !(r.hidden || []).length && !r.locked && !(r.snaps || []).length && !(r.cardPts || []).length && !(r.cardCount || []).some((x) => x) && !(r.cardAdj || []).some((x) => x));
   function sortQs(c) { const o = c._qorder; if (!o) return; const rank = (q) => { const i = o.indexOf(q.id); return i < 0 ? 1e9 : i; }; c.qs.sort((a, b) => rank(a) - rank(b)); }
 
   /* 套用遠端的班級清單／設定 */
@@ -404,7 +411,7 @@
       const d = ch.data; let c = S.classes.find((x) => x.id === ch.id);
       if (!c) { c = { id: ch.id, groups: 4, created: d.created || Date.now(), corners: [], sz: null, floor: { w: 8, d: 6 }, cur: 0, group: "1", qs: [], _h: { meta: "", q: {} } }; S.classes.push(c); }
       c._cloud = true; c._metaRemote = true; c.name = d.name; c.groups = d.groups || 4; c.created = d.created || c.created; c.corners = Cl().cornersIn(d.corners); c.sz = d.sz || null; if (d.floor) { if (c === S.cls) { S.floor.w = d.floor.w; S.floor.d = d.floor.d; } else c.floor = d.floor; } c._qorder = d.qorder || null;
-      if (c === S.cls && c._synced) { sortQs(c); c._h.meta = st8(metaOf(c)); }
+      if (c === S.cls && c._synced) { if (c._h.qorder === undefined || st8(c.qs.map((q) => q.id)) === c._h.qorder) { sortQs(c); c._h.qorder = st8(c.qs.map((q) => q.id)); c._h.meta = st8(metaOf(c)); } } // 本機有尚未推送的順序修改時，不被舊快照蓋掉
     }
     S.classes.sort((a, b) => a.created - b.created);
     if (activeGone || (S.cls && !visibleClasses().includes(S.cls))) { S.cls = null; const n = visibleClasses()[0]; if (n) switchClass(n.id); else syncClassBar(); return; }

@@ -11,7 +11,7 @@
       if (!window.indexedDB) return rej(new Error("no idb"));
       const r = indexedDB.open(DBN, V);
       r.onupgradeneeded = () => { const d = r.result; d.createObjectStore("classes", { keyPath: "id" }); d.createObjectStore("meta"); };
-      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); r.onblocked = () => rej(new Error("blocked"));
+      r.onsuccess = () => { r.result.onversionchange = () => { try { r.result.close(); } catch (e) {} }; res(r.result); }; r.onerror = () => rej(r.error); r.onblocked = () => rej(new Error("blocked"));
     });
   }
   const tx = (store, m, fn) => new Promise((res, rej) => { const t = db.transaction(store, m), s = t.objectStore(store), q = fn(s); t.oncomplete = () => res(q && q.result); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); });
