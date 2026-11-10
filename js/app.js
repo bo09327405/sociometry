@@ -243,7 +243,7 @@
     if (!S.follow) v = null;
     else if (v && !(S.sw > 0)) { v = null; wait = "這班尚未校準地板（或操作電腦還沒存校準），無法換算人數。"; } // 沒有畫面大小就算不出位置，寧可不顯示也不要顯示成 0
     if (v && !v.counts.every(Number.isFinite)) v = null;
-    if (v) v.sub = (S.cls ? S.cls.name : "") + "・" + SM.Q.groupName(S.group) + (S.follow && S.follow.by ? "　（On Air：" + S.follow.by + (Date.now() - S.followRecv > 40000 ? "・訊號中斷？" : "") + "）" : "");
+    if (v) v.sub = (S.cls ? S.cls.name : "") + "・" + SM.Q.groupName(S.group) + (S.follow && S.follow.by ? "　（On Air：" + airName(S.follow) + (Date.now() - S.followRecv > 40000 ? "・訊號中斷？" : "") + "）" : "");
     SM.Charts.smooth(cv, v, wait);
   }
   function postView(v) {
@@ -368,30 +368,33 @@
   addEventListener("pagehide", () => saveClass());
 
   /* ================= 「正在操作」指標：讓跟隨投影頁知道要顯示哪班哪題哪組 ================= */
+  /* 指標只認 On Air 版寫入的（裝置名前綴 "air|"）。舊版網頁（學生沒重新整理）仍會在每次操作時寫指標，不加過濾投影就會被它們拉去別題。 */
+  const isAirDoc = (d) => !!d && typeof d.by === "string" && d.by.startsWith("air|"), airOff = (d) => /#off$/.test(d.by), airName = (d) => d.by.slice(4).replace(/#off$/, "");
   function publishLive(op, off) {
     if (!cloudOn() || S.live || !S.cls || !S.cls._cloud || !Q() || !S.ready) return;
     if (!S.onAir && !off) return; // On Air 預設關閉：沒開的裝置完全不會影響投影
     const now = Date.now(), key = S.cls.id + "|" + Q().id + "|" + S.group + "|" + (off ? "off" : "");
     if (!off && key === S.lastPub && now - S.pubT < 5000) return; // 同一目標最多每 5 秒重發一次（也當心跳）
     S.lastPub = key; S.pubT = now;
-    const p = Cl().setLive({ classId: S.cls.id, qid: Q().id, group: S.group, by: S.devName + (off ? "#off" : ""), ts: now }); // 規則只允許固定欄位：關閉時以裝置名尾碼 #off 表示
+    const p = Cl().setLive({ classId: S.cls.id, qid: Q().id, group: S.group, by: "air|" + S.devName + (off ? "#off" : ""), ts: now }); // 規則只允許固定欄位：關閉時以裝置名尾碼 #off 表示
     p.then(() => { if (S.onAir && !off) S.airMine = true; }).catch((e) => { console.warn("live pointer", e); });
   }
   const offAir = (m) => { S.onAir = false; S.airMine = false; clearInterval(S.airTimer); $("bAir").classList.remove("on"); $("bAir").textContent = "● On Air：關"; if (m) msg(m); airInfo(); };
   function airInfo() {
-    const d = S.airDoc, on = d && !/#(off|S)$/.test(d.by || ""), el = $("airInfo"); if (!el) return;
-    el.textContent = S.onAir ? "這台正在 On Air" : on ? "On Air：" + d.by : "目前沒有人 On Air";
+    const d = S.airDoc, on = isAirDoc(d) && !airOff(d), el = $("airInfo"); if (!el) return;
+    el.textContent = S.onAir ? "這台正在 On Air" : on ? "On Air：" + airName(d) : "目前沒有人 On Air";
   }
   function onAirSeen(d) {
+    if (d && !isAirDoc(d)) return; // 舊版網頁寫的指標：忽略
     S.airDoc = d;
-    if (S.onAir && S.airMine && d && d.by !== S.devName && !/#(off|S)$/.test(d.by || "")) { offAir("已由「" + d.by + "」接手 On Air，這台已自動關閉。"); return; }
+    if (S.onAir && S.airMine && d && airName(d) !== S.devName && !airOff(d)) { offAir("已由「" + airName(d) + "」接手 On Air，這台已自動關閉。"); return; }
     airInfo();
   }
   $("bAir").onclick = () => {
     if (!cloudOn()) return msg("On Air 需要雲端同步（目前是僅本機模式；本機的「投影視窗」不受影響）。");
     if (S.onAir) { publishLive(true, true); return offAir("已關閉 On Air：跟隨投影會顯示等待畫面。"); }
     if (!S.cls || !S.cls._cloud) return msg("請先選擇一個已同步的班級。");
-    const d = S.airDoc; if (d && !/#(off|S)$/.test(d.by || "") && d.by !== S.devName && Date.now() - d.ts < 30000 && !confirm("「" + d.by + "」目前正在 On Air。要由這台接手嗎？（對方會自動關閉）")) return;
+    const d = S.airDoc; if (isAirDoc(d) && !airOff(d) && airName(d) !== S.devName && Date.now() - d.ts < 30000 && !confirm("「" + airName(d) + "」目前正在 On Air。要由這台接手嗎？（對方會自動關閉）")) return;
     S.onAir = true; S.airMine = false; S.lastPub = ""; $("bAir").classList.add("on"); $("bAir").textContent = "● On Air：開"; publishLive(true); airInfo();
     clearInterval(S.airTimer); S.airTimer = setInterval(() => publishLive(true), 8000); // 心跳：投影頁據此判斷這台還在線
     msg("On Air 已開啟：其他裝置的「跟隨投影」會同步顯示這台正在操作的班級／題目／組別。離開前請記得關閉。");
@@ -675,8 +678,9 @@
       addEventListener("resize", () => { if (Q()) refresh(true); else liveDraw(null); });
       setInterval(() => { if (Q() && S.follow) refresh(true); }, 10000); // 更新「訊號中斷」提示
       Cl().watchLive((d) => {
+        if (d && !isAirDoc(d)) return; // 舊版網頁寫的指標：忽略，維持目前畫面
         S.followRecv = Date.now();
-        S.follow = d && !/#(off|S)$/.test(d.by || "") ? d : null; // 沒有人 On Air → 等待畫面
+        S.follow = d && !airOff(d) ? d : null; // 沒有人 On Air → 等待畫面
         applyFollow(); if (!S.follow) liveDraw(null);
       }, (e) => setSync("err", e));
       liveDraw(Q() && S.follow ? buildView(Q()) : null);
