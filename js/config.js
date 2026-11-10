@@ -14,5 +14,5 @@ SM.CONFIG = {
   teachers: [],
   // 雲端同步（Firebase）。留空＝只存在各自瀏覽器、不同步。設定步驟見 README「雲端同步」。
   // 這些值是公開的網頁設定（不是密鑰），安全性由 Firestore 規則決定。
-  firebase: { apiKey: "", authDomain: "", projectId: "", appId: "" },
+  firebase: { apiKey: "AIzaSyBHEE8ehhqX7pksRPCJz6VCPXY2TnbJPSc", authDomain: "performingarts-adb73.firebaseapp.com", projectId: "performingarts-adb73", appId: "1:55464510017:web:5d6f2077d3c7296d29bcc0" },
 };
