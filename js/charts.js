@@ -25,13 +25,13 @@
   const pct = (n, t) => (t ? Math.round((n * 100) / t) + "%" : "");
 
   function bars(c, W, H, v, colorOf) {
-    const n = v.counts.length, gx = W * 0.05, gw = W * 0.9, gy = H * 0.2, gh = H * 0.5, bw = gw / n, max = Math.max(1, ...v.counts);
+    const n = v.counts.length, gx = W * 0.05, gw = W * 0.9, gy = H * 0.2, gh = H * 0.5, bw = gw / n, max = v.max || Math.max(1, ...v.counts);
     c.strokeStyle = "#3a4356"; c.lineWidth = Math.max(2, H * 0.004); c.beginPath(); c.moveTo(gx, gy + gh); c.lineTo(gx + gw, gy + gh); c.stroke();
     v.counts.forEach((cnt, i) => {
       const h = gh * cnt / max, x = gx + i * bw + bw * 0.1, w = bw * 0.8;
       c.fillStyle = colorOf(i, n); c.fillRect(x, gy + gh - h, w, h);
       c.textAlign = "center"; c.fillStyle = FG; c.font = "bold " + Math.min(bw * 0.5, H * 0.11) + "px " + FONT;
-      c.fillText(cnt, x + w / 2, gy + gh - h - H * 0.045);
+      c.fillText(Math.round(cnt), x + w / 2, gy + gh - h - H * 0.045);
       c.font = Math.min(bw * 0.3, H * 0.05) + "px " + FONT; c.fillStyle = MUTE;
       c.fillText(pct(cnt, v.total), x + w / 2, gy + gh + H * 0.04);
     });
@@ -60,13 +60,13 @@
     },
     matrix(c, W, H, v) {
       header(c, W, H, v);
-      const gx = W * 0.04, gy = H * 0.16, gw = W * 0.92, gh = H * 0.8, cw = gw / v.cols, ch = gh / v.rows, max = Math.max(1, ...v.counts), top = Math.max(...v.counts);
+      const gx = W * 0.04, gy = H * 0.16, gw = W * 0.92, gh = H * 0.8, cw = gw / v.cols, ch = gh / v.rows, max = v.max || Math.max(1, ...v.counts), top = Math.max(...v.counts);
       v.counts.forEach((n, i) => {
         const x = gx + (i % v.cols) * cw, y = gy + Math.floor(i / v.cols) * ch, a = 0.15 + 0.7 * n / max;
         c.fillStyle = "rgba(60,160,255," + a + ")"; c.fillRect(x + 5, y + 5, cw - 10, ch - 10);
         c.strokeStyle = n === top && n > 0 ? "#ffc24a" : "#4a5468"; c.lineWidth = n === top && n > 0 ? 6 : 2; c.strokeRect(x + 5, y + 5, cw - 10, ch - 10);
         c.textAlign = "center"; c.fillStyle = FG; c.font = "bold " + Math.min(ch * 0.42, cw * 0.4, H * 0.22) + "px " + FONT;
-        c.fillText(n, x + cw / 2, y + ch * 0.4);
+        c.fillText(Math.round(n), x + cw / 2, y + ch * 0.4);
         const l = v.labels[i] || "", s = fit(c, l, cw * 0.88, Math.min(ch * 0.17, H * 0.085), "bold");
         c.font = "bold " + s + "px " + FONT; c.fillText(l, x + cw / 2, y + ch * 0.72);
         c.font = Math.min(ch * 0.1, H * 0.05) + "px " + FONT; c.fillStyle = "#dbe6ff"; c.fillText(pct(n, v.total), x + cw / 2, y + ch * 0.89);
@@ -92,18 +92,41 @@
       c.fillStyle = FG; c.font = "bold " + Math.min(H * 0.05, R * 0.3) + "px " + FONT;
       c.fillText(v.centerLabel || "圓心", cx, cy + Math.max(H * 0.06, R * 0.1) + 6);
       // 右側圖例：每圈人數
-      const lx = W * 0.6, ly = H * 0.2, lh = H * 0.7 / nb, max = Math.max(1, ...v.counts);
+      const lx = W * 0.6, ly = H * 0.2, lh = H * 0.7 / nb, max = v.max || Math.max(1, ...v.counts);
       v.counts.forEach((n, i) => {
         const y = ly + i * lh, col = RING_COLORS[Math.min(i, RING_COLORS.length - 1)];
         c.textAlign = "left"; c.fillStyle = col; c.beginPath(); c.arc(lx + H * 0.02, y + lh * 0.3, H * 0.02, 0, 7); c.fill();
         c.fillStyle = FG; const l = v.labels[i] || "", s = fit(c, l, W * 0.34, H * 0.055, "bold"); c.font = "bold " + s + "px " + FONT; c.fillText(l, lx + H * 0.06, y + lh * 0.3);
         const bwid = (W * 0.2) * n / max; c.fillStyle = col; c.fillRect(lx, y + lh * 0.56, Math.max(2, bwid), lh * 0.2);
-        c.textAlign = "left"; c.fillStyle = FG; c.textBaseline = "middle"; c.font = "bold " + Math.min(lh * 0.36, H * 0.07) + "px " + FONT; c.fillText(n + " 人", lx + Math.max(2, bwid) + H * 0.02, y + lh * 0.66);
+        c.textAlign = "left"; c.fillStyle = FG; c.textBaseline = "middle"; c.font = "bold " + Math.min(lh * 0.36, H * 0.07) + "px " + FONT; c.fillText(Math.round(n) + " 人", lx + Math.max(2, bwid) + H * 0.02, y + lh * 0.66);
       });
     },
   };
 
+  /* 投影用：數字與長條平滑過渡、比例尺不亂跳、尺寸沒變就不重設畫布（避免連續掃描時畫面抖動） */
+  const smooth = (cv, v, waitText) => {
+    const st = cv._sm || (cv._sm = { disp: null, key: "", scale: 1, timer: 0, tgt: null, wait: "" });
+    const key = v ? v.type + "|" + v.title + "|" + v.labels.join("/") : "";
+    const tgt = v ? v.counts.slice() : null, tmax = tgt ? Math.max(1, ...tgt) : 1;
+    clearTimeout(st.timer); st.tgt = v; st.wait = waitText;
+    if (!v || key !== st.key || !st.disp || st.disp.length !== tgt.length) { st.key = key; st.disp = tgt ? tgt.slice() : null; st.scale = tmax; }
+    // 比例尺：變大立即跟上，變小要慢慢縮，避免一個人進出就整張圖縮放
+    const step = () => {
+      let moving = false;
+      if (st.tgt) {
+        const t = st.tgt.counts, tm = Math.max(1, ...t);
+        st.disp = st.disp.map((d, i) => { const g = t[i] - d; if (Math.abs(g) < 0.04) return t[i]; moving = true; return d + g * 0.35; });
+        const gs = tm - st.scale; if (Math.abs(gs) < 0.04) st.scale = tm; else { moving = true; st.scale += gs * (gs > 0 ? 0.5 : 0.12); }
+        const vv = Object.assign({}, st.tgt, { counts: st.disp, max: st.scale });
+        SM.Charts.draw(cv, vv, st.wait);
+      } else SM.Charts.draw(cv, null, st.wait);
+      if (moving) st.timer = setTimeout(step, 40);
+    };
+    step();
+  };
   SM.Charts = {
+    smooth,
+    fitCanvas(cv) { const d = window.devicePixelRatio || 1, w = Math.round(innerWidth * d), h = Math.round(innerHeight * d); if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; } },
     draw(cv, v, waitText) {
       const c = cv.getContext("2d"), W = cv.width, H = cv.height;
       if (!v) { c.fillStyle = BG; c.fillRect(0, 0, W, H); c.fillStyle = MUTE; c.font = H * 0.05 + "px " + FONT; c.textAlign = "left"; c.textBaseline = "middle"; c.fillText(waitText || "等待主畫面傳送資料…", W * 0.04, H * 0.1); return; }

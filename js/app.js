@@ -9,7 +9,7 @@
     document.body.classList.add("view");
     document.title = "投影視窗 — 社會計量";
     const cv = $("viewc"); let last = null;
-    const draw = () => { const d = window.devicePixelRatio || 1; cv.width = Math.round(innerWidth * d); cv.height = Math.round(innerHeight * d); SM.Charts.draw(cv, last); };
+    const draw = () => { SM.Charts.fitCanvas(cv); SM.Charts.smooth(cv, last); };
     const on = (m) => { if (m && m.kind === "view") { last = m.view; draw(); } };
     if (bc) bc.onmessage = (e) => on(e.data);
     addEventListener("message", (e) => on(e.data));
@@ -239,10 +239,10 @@
     postView(v); scheduleSave();
   }
   function liveDraw(v) {
-    const cv = $("viewc"), d = window.devicePixelRatio || 1; cv.width = Math.round(innerWidth * d); cv.height = Math.round(innerHeight * d);
+    const cv = $("viewc"); SM.Charts.fitCanvas(cv);
     if (!S.follow) v = null;
     if (v) v.sub = (S.cls ? S.cls.name : "") + "・" + SM.Q.groupName(S.group) + (S.follow && S.follow.by ? "　（操作裝置 " + S.follow.by + "）" : "");
-    SM.Charts.draw(cv, v, "等待操作電腦開始掃描…");
+    SM.Charts.smooth(cv, v, "等待操作電腦開始掃描…");
   }
   function postView(v) {
     const m = { kind: "view", view: v };
@@ -376,7 +376,13 @@
   }
   /* 跟隨投影頁：依雲端指標切換班級／組別／題目 */
   async function applyFollow() {
-    const f = S.follow; if (!f || !S.live) return;
+    let f = S.follow; if (!f || !S.live) return;
+    // 多台電腦輪流操作時，指標會來回跳：同一目標至少停留 6 秒才換，避免投影畫面一直切題
+    const k = f.classId + "|" + f.qid + "|" + f.group, now = Date.now();
+    if (S.fk !== k) {
+      if (S.fk && now - S.fkT < 6000) { clearTimeout(S.fkTimer); S.fkTimer = setTimeout(applyFollow, 6000 - (now - S.fkT) + 50); return; }
+      S.fk = k; S.fkT = now;
+    }
     const c = S.classes.find((x) => x.id === f.classId && x._cloud); if (!c) return;
     if (!S.cls || S.cls.id !== c.id) { await switchClass(c.id); return; } // 切班後等第一次同步完成再套用
     if (!c._synced) return;
