@@ -107,6 +107,12 @@
   const smooth = (cv, v, waitText) => {
     const st = cv._sm || (cv._sm = { disp: null, key: "", scale: 1, timer: 0, tgt: null, wait: "" });
     const key = v ? v.type + "|" + v.title + "|" + v.labels.join("/") : "";
+    if (v) { // 連續更新（相鄰兩筆間隔 < 2.5 秒）時，取最近 5 筆各選項的中位數，單一次掃描的漏抓／誤抓不會讓數字跳動；單次手動修改（間隔久）則立即套用
+      const now = Date.now(), H = st.hist || (st.hist = []);
+      if (key !== st.hkey || !H.length || now - H[H.length - 1].t > 2500) { H.length = 0; st.hkey = key; }
+      H.push({ t: now, c: v.counts.slice() }); while (H.length > 5) H.shift();
+      if (H.length >= 3) { const med = (a) => { const b = a.slice().sort((x, y) => x - y), m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; }; v = Object.assign({}, v, { counts: v.counts.map((_, i) => Math.round(med(H.map((e) => e.c[i])))) }); v.total = v.counts.reduce((a, b) => a + b, 0); }
+    } else st.hist = [];
     const tgt = v ? v.counts.slice() : null, tmax = tgt ? Math.max(1, ...tgt) : 1;
     clearTimeout(st.timer); st.tgt = v; st.wait = waitText;
     if (!v || key !== st.key || !st.disp || st.disp.length !== tgt.length) { st.key = key; st.disp = tgt ? tgt.slice() : null; st.scale = tmax; }
