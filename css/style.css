@@ -17,8 +17,8 @@ main{display:grid;grid-template-columns:240px minmax(0,1.45fr) minmax(0,1fr);gap
 @media(max-width:800px){main{grid-template-columns:1fr}}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:10px}
 .card h2{font-size:14px;margin:0 0 6px;color:var(--mute);font-weight:600}
-#stage{position:relative;background:#000;border-radius:8px;overflow:hidden;min-height:220px;line-height:0}
-#stage video,#stage img{display:block;width:100%;height:auto}
+#stage{position:relative;background:#000;border-radius:8px;overflow:hidden;aspect-ratio:var(--ar,16/9);width:100%;line-height:0}
+#stage video,#stage img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
 #ov{position:absolute;left:0;top:0;width:100%;height:100%}
 #empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--mute);line-height:1.6;text-align:center;padding:20px}
 #msg{min-height:20px;margin:6px 0 2px;color:#ffd7a8}
@@ -65,3 +65,21 @@ body.view #classbar{display:none}
 .authbox .who{color:var(--ok)}.authbox .no{color:var(--bad)}
 button.locked{opacity:.5}
 .cardopt{display:inline-flex;gap:3px;align-items:center;margin-right:6px}
+
+/* ===== 穩定版面（避免「跳來跳去」）：預留會變動內容的空間、狀態文字固定寬度 ===== */
+#msg{min-height:2.9em;overflow-wrap:anywhere}
+#hint{min-height:3.3em}
+#stat{min-height:46px}
+#syncInfo,#saveInfo,#calibInfo{display:inline-block;white-space:nowrap}
+#syncInfo{min-width:13em}#saveInfo{min-width:13em}#calibInfo{min-width:19em}
+.authbox{min-width:16em;justify-content:flex-end}
+#qlist{min-height:140px;overscroll-behavior:contain}
+#snaps{min-height:2.4em}
+#panel{min-height:5em}
+#ov{touch-action:pan-y;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+body.tool-active #ov{touch-action:none}   /* 校準／校正時，在影像上拖曳不要捲動整個頁面 */
+button,select,input,summary{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+/* 矮螢幕（Chromebook 常見 768 高）或窄螢幕：頂欄不要固定，否則會佔掉大半畫面並遮住內容 */
+@media (max-height:900px),(max-width:1100px){header{position:static}}
+/* 觸控裝置：加大點擊範圍 */
+@media (pointer:coarse){button,select,input[type=text],input[type=number]{min-height:44px}#qlist li{padding:11px 8px}button.sm{padding:6px 12px}}

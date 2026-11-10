@@ -61,7 +61,7 @@
 
   /* ================= 來源：鏡頭 / 照片 ================= */
   function setSource(el, w, h, type) {
-    S.src = el; S.sw = w; S.sh = h; S.srcType = type; const ov = $("ov"); ov.width = w; ov.height = h; $("empty").hidden = true; S.boxes = [];
+    S.src = el; S.sw = w; S.sh = h; S.srcType = type; $("stage").style.setProperty("--ar", w + " / " + h); const ov = $("ov"); ov.width = w; ov.height = h; $("empty").hidden = true; S.boxes = [];
     applyClassCalib(); drawOv(); refresh();
   }
   async function startCam(deviceId) {
@@ -105,7 +105,7 @@
   /* ================= 指標操作：校準 / 圓心 / 圓點編輯 ================= */
   const evXY = (e) => { const r = $("ov").getBoundingClientRect(); return [((e.clientX - r.left) * S.sw) / r.width, ((e.clientY - r.top) * S.sh) / r.height]; };
   function setTool(t) {
-    S.tool = t; $("bCal").classList.toggle("on", t === "calib"); $("bEdit").classList.toggle("on", t === "edit");
+    S.tool = t; document.body.classList.toggle("tool-active", t === "calib" || t === "edit" || t === "center" || t === "sample"); $("bCal").classList.toggle("on", t === "calib"); $("bEdit").classList.toggle("on", t === "edit");
     $("ov").style.cursor = t === "calib" || t === "center" || t === "sample" ? "crosshair" : t === "edit" ? "cell" : "default"; hint();
   }
   function hint() {
@@ -132,7 +132,8 @@
   function pushUndo() { const q = Q(); if (!q) return; S.undo.push(JSON.stringify({ id: q.id, pts: q.pts, hidden: q.hidden })); if (S.undo.length > 40) S.undo.shift(); }
   function undo() { const s = S.undo.pop(); if (!s) return msg("沒有可復原的動作。"); const d = JSON.parse(s), i = S.qs.findIndex((q) => q.id === d.id); if (i < 0) return; S.cur = i; Q().pts = d.pts; Q().hidden = d.hidden; refresh(); renderList(); }
   $("bUndo").onclick = undo;
-  const hitR = () => 16 * kScale();
+  const coarse = window.matchMedia && matchMedia("(pointer:coarse)").matches;
+  const hitR = () => (coarse ? 30 : 16) * kScale();
 
   $("ov").addEventListener("pointerdown", (e) => {
     if (!S.sw || !Q()) return; const [x, y] = evXY(e), q = Q(), k = kScale();
@@ -225,11 +226,14 @@
     const v = buildView(q);
     if (S.live) { liveDraw(v); return; } // 跟隨投影頁：只畫大圖，不做其他事
     SM.Charts.draw($("chart"), v);
-    const tot = $("stat");
+    const tot = $("stat"), skey = JSON.stringify([q.type, v.total, v.det, v.add, v.del, q.locked, q.type === "distance" && !q.cfg.center, !calibrated() && !!S.sw, S.cls && S.cls.name, S.group]);
+    if (skey !== S.statKey) { // 數字沒變就不重建（避免閃爍與版面抖動）
+    S.statKey = skey;
     tot.innerHTML = ""; tot.append(h("span", { class: "p", style: "background:#3a3322;color:#ffd37a" }, (S.cls ? S.cls.name + "・" : "") + SM.Q.groupName(S.group)));
     if (q.type === "cards") tot.append(h("span", { class: "big" }, v.total), "人（色卡）");
     else tot.append(h("span", { class: "big" }, v.total), h("span", {}, "人"), h("span", { class: "p" }, "自動偵測 " + v.det), h("span", { class: "p" }, "手動新增 +" + v.add), h("span", { class: "p" }, "手動刪除 −" + v.del), q.locked ? h("span", { class: "p", style: "color:#7bd88f" }, "🔒 已鎖定") : "",
       q.type === "distance" && !q.cfg.center ? h("span", { class: "p", style: "color:#ff7a5c" }, "尚未設定圓心") : "", !calibrated() && S.sw ? h("span", { class: "p", style: "color:#ffb02e" }, "未校準地板") : "");
+    }
     $("bLock").textContent = q.locked ? "🔒 解除鎖定" : "④ 鎖定本題"; $("bLock").classList.toggle("on", q.locked); $("bLock").disabled = ro();
     if (!light) hint();
     postView(v); scheduleSave();
@@ -248,20 +252,33 @@
   addEventListener("message", (e) => { if (e.data && e.data.kind === "hello") refresh(true); });
   if (bc) bc.onmessage = (e) => { if (e.data && e.data.kind === "hello") refresh(true); };
 
-  function renderList() {
-    const ul = $("qlist"); ul.innerHTML = ""; const f = S.filter.trim().toLowerCase(), N = S.cls ? S.cls.groups : 4, gs = Array.from({ length: N }, (_, i) => String(i + 1)).concat(["all"]);
+  function renderList(reveal) {
+    const ul = $("qlist"), f = S.filter.trim().toLowerCase(), N = S.cls ? S.cls.groups : 4, gs = Array.from({ length: N }, (_, i) => String(i + 1)).concat(["all"]);
+    const rows = [];
     S.qs.forEach((q, i) => {
       if (f && !q.title.toLowerCase().includes(f) && String(i + 1) !== f) return;
       const t = counts(q).counts.reduce((a, b) => a + b, 0);
-      const dots = h("span", { class: "dots", title: "各組完成度（綠＝已鎖定，橘＝有資料，灰＝空）" }, gs.map((g) => { const r = SM.Q.resOf(q, g, S.group); const st = r && r.locked ? "lk" : r && ((r.pts && r.pts.length) || (r.snaps && r.snaps.length) || (r.cardCount && r.cardCount.some((x) => x))) ? "pt" : ""; return h("i", { class: st }); }));
-      ul.append(h("li", { class: i === S.cur ? "cur" : "", onclick: () => selectQ(i) }, h("span", { class: "n" }, i + 1), h("span", { class: "t" }, q.title), h("span", { class: "tag " + q.type }, SM.Modes[q.type].name), dots, h("span", { class: "mute" }, t)));
+      const st = gs.map((g) => { const r = SM.Q.resOf(q, g, S.group); return r && r.locked ? "lk" : r && ((r.pts && r.pts.length) || (r.snaps && r.snaps.length) || (r.cardCount && r.cardCount.some((x) => x))) ? "pt" : ""; });
+      rows.push({ i, q, t, st });
     });
-    const cur = ul.querySelector("li.cur"); if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "nearest" });
+    const sig = JSON.stringify([rows.map((r) => [r.i, r.q.id, r.q.title, r.q.type, r.t, r.st]), S.cur, S.qs.length]);
+    if (sig !== S.listSig) { // 內容沒變就不重畫（遠端同步每秒可能觸發多次，重畫會讓清單閃動、失去捲動位置）
+      S.listSig = sig; const top = ul.scrollTop; ul.innerHTML = "";
+      rows.forEach(({ i, q, t, st }) => {
+        const dots = h("span", { class: "dots", title: "各組完成度（綠＝已鎖定，橘＝有資料，灰＝空）" }, st.map((c) => h("i", { class: c })));
+        ul.append(h("li", { class: i === S.cur ? "cur" : "", onclick: () => selectQ(i) }, h("span", { class: "n" }, i + 1), h("span", { class: "t" }, q.title), h("span", { class: "tag " + q.type }, SM.Modes[q.type].name), dots, h("span", { class: "mute" }, t)));
+      });
+      ul.scrollTop = top;
+    }
+    if (reveal) { // 只在使用者切題時，才把目前這題捲進清單可視範圍（只捲清單本身，不捲整個頁面）
+      const cur = ul.querySelector("li.cur"); if (cur) { const t0 = cur.offsetTop - ul.offsetTop, h0 = cur.offsetHeight; if (t0 < ul.scrollTop) ul.scrollTop = t0 - 4; else if (t0 + h0 > ul.scrollTop + ul.clientHeight) ul.scrollTop = t0 + h0 - ul.clientHeight + 4; }
+    }
     $("qCount").textContent = "共 " + S.qs.length + " 題";
     renderSnaps();
   }
   function renderSnaps() {
-    const q = Q(), d = $("snaps"); d.innerHTML = ""; if (!q || !q.snaps.length) { d.textContent = "（尚無快照）"; return; }
+    const q = Q(), d = $("snaps"), sig = q ? JSON.stringify(q.snaps.map((x) => [x.g, x.t, x.total, x.locked])) : "";
+    if (sig === S.snapSig) return; S.snapSig = sig; d.innerHTML = ""; if (!q || !q.snaps.length) { d.textContent = "（尚無快照）"; return; }
     q.snaps.forEach((s, i) => d.append(h("div", {}, (i + 1) + ". " + (s.g ? SM.Q.groupName(s.g) + "｜" : "") + s.t + (s.locked ? "🔒" : "") + "｜共 " + s.total + "｜" + s.labels.map((l, j) => l + ":" + s.counts[j]).join("、"))));
   }
   function renderPanel() {
@@ -277,7 +294,7 @@
     if (q.pts.length && !confirm("切換技術會保留圓點位置，但設定會重設為該技術的預設值。繼續？")) return;
     q.type = t; q.cfg = SM.Modes[t].defaults(); renderPanel(); drawOv(); refresh(); renderList();
   }
-  function selectQ(i) { if (S.loop) { S.loop = false; $("bLoop").classList.remove("on"); } S.cur = Math.max(0, Math.min(S.qs.length - 1, i)); S.undo = []; S.stab.reset(); S.boxes = []; if (S.tool === "center") setTool(null); renderList(); renderPanel(); drawOv(); refresh(); publishLive(false); }
+  function selectQ(i) { if (S.loop) { S.loop = false; $("bLoop").classList.remove("on"); } S.cur = Math.max(0, Math.min(S.qs.length - 1, i)); S.undo = []; S.stab.reset(); S.boxes = []; if (S.tool === "center") setTool(null); renderList(true); renderPanel(); drawOv(); refresh(); publishLive(false); }
   $("qTitle").oninput = (e) => { Q().title = e.target.value; refresh(true); renderList(); };
   $("qAdd").onclick = () => { S.qs.push(SM.Q.create("spectrum", "新題目")); selectQ(S.qs.length - 1); };
   $("qDup").onclick = () => { const o = Q(); if (!o) return noQ(); const c = SM.Q.create(o.type, o.title + "（複製）", JSON.parse(JSON.stringify(o.cfg))); S.qs.splice(S.cur + 1, 0, c); selectQ(S.cur + 1); };
@@ -459,7 +476,7 @@
     S.unsubQ = Cl().watchQuestions(c.id, (changes) => { if (S.cls === c) onRemoteQuestions(c, changes); }, (e) => setSync("err", e));
   }
   function onRemoteQuestions(c, changes) {
-    stashAll(); const curId = Q() && Q().id; let touched = false;
+    stashAll(); const curId = Q() && Q().id; let touched = false; const cfgTouched = new Set();
     for (const ch of changes) {
       if (ch.pending) continue; // 自己剛寫出去的回聲
       if (ch.type === "removed") { const i = c.qs.findIndex((q) => q.id === ch.id); if (i >= 0) { c.qs.splice(i, 1); touched = true; } delete c._h.q[ch.id]; continue; }
@@ -469,7 +486,7 @@
       if (d.type) { // 題目設定：若本機有尚未推送的修改以本機為準，否則以雲端為準
         const hd = st8({ title: d.title, type: d.type, cfg: d.cfg }), hl = st8({ title: q.title, type: q.type, cfg: q.cfg });
         const dirty = qh.cfg !== "" && hl !== qh.cfg;
-        if (!dirty) { if (hd !== hl) { q.title = d.title; q.type = d.type; q.cfg = d.cfg; touched = true; } qh.cfg = hd; }
+        if (!dirty) { if (hd !== hl) { q.title = d.title; q.type = d.type; q.cfg = d.cfg; touched = true; cfgTouched.add(q.id); } qh.cfg = hd; }
       }
       for (const g of Object.keys(d.res || {})) {
         const remote = d.res[g], hr = st8(remote), local = q.res[g];
@@ -481,7 +498,7 @@
     const firstSync = !c._synced; if (firstSync) { c._synced = true; touched = true; }
     if (c._qorder) sortQs(c);
     if (c._metaRemote) { c._h.meta = st8(metaOf(c)); c._h.qorder = st8(c.qs.map((q) => q.id)); } // 雲端已有這班的設定才視為已同步；新建的班級要等著被推送
-    if (touched) { loadAll(); const i = S.qs.findIndex((q) => q.id === curId); S.cur = Math.max(0, i >= 0 ? i : Math.min(S.cur, S.qs.length - 1)); if (!S.qs.length) S.cur = 0; renderList(); if (Q()) { renderPanel(); drawOv(); refresh(true); } else { $("chart").getContext("2d").clearRect(0, 0, 9999, 9999); } }
+    if (touched) { loadAll(); const i = S.qs.findIndex((q) => q.id === curId); S.cur = Math.max(0, i >= 0 ? i : Math.min(S.cur, S.qs.length - 1)); if (!S.qs.length) S.cur = 0; renderList(); if (Q()) { if (cfgTouched.has(Q().id) || Q().id !== curId) renderPanel(); /* 別題的更新不重繪設定面板，避免輸入中被打斷 */ drawOv(); refresh(true); } else { $("chart").getContext("2d").clearRect(0, 0, 9999, 9999); } }
     setSync("ok"); if (firstSync) scheduleSave(); // 補推在等待首次同步期間產生的本機變更
     if (S.live) applyFollow();
   }
@@ -515,8 +532,14 @@
   }
   function calibInfo() { const c = S.cls, saved = c && c.corners && c.corners.length === 4; $("calibInfo").textContent = !c ? "" : !saved ? "📐 本班尚未校準" : S.sw && !S.corners.length ? "📐 本班有校準，但目前畫面的長寬比不同，請重新校準" : "📐 本班已校準（套用於本班所有組別與題目）"; }
   function syncClassBar() {
-    const cs = $("clsSel"); cs.innerHTML = ""; visibleClasses().forEach((c) => cs.append(h("option", { value: c.id }, c.name + (cloudOn() && !c._cloud ? "（僅本機）" : "")))); if (S.cls) cs.value = S.cls.id;
-    const gs = $("grpSel"); gs.innerHTML = ""; groupsOf().forEach((g) => gs.append(h("option", { value: g }, SM.Q.groupName(g)))); gs.append(h("option", { value: "all" }, "全班同場（一次站完）"), h("option", { value: "merge" }, "合併檢視（第1–" + groupsOf().length + "組相加・唯讀）")); gs.value = S.group;
+    const vis = visibleClasses(), gl = groupsOf(), sig = JSON.stringify([vis.map((c) => [c.id, c.name, !!c._cloud]), gl.length, cloudOn()]);
+    const cs = $("clsSel"), gs = $("grpSel");
+    if (sig !== S.cbSig) { // 選單內容有變才重建；使用者正打開下拉選單時重建會讓選單突然關掉
+      S.cbSig = sig; cs.innerHTML = ""; vis.forEach((c) => cs.append(h("option", { value: c.id }, c.name + (cloudOn() && !c._cloud ? "（僅本機）" : ""))));
+      gs.innerHTML = ""; gl.forEach((g) => gs.append(h("option", { value: g }, SM.Q.groupName(g)))); gs.append(h("option", { value: "all" }, "全班同場（一次站完）"), h("option", { value: "merge" }, "合併檢視（第1–" + gl.length + "組相加・唯讀）"));
+    }
+    if (S.cls && document.activeElement !== cs) cs.value = S.cls.id;
+    if (document.activeElement !== gs) gs.value = S.group;
     $("grpN").value = S.cls ? S.cls.groups : 4;
   }
   function afterSwitch() { publishLive(false); S.undo = []; S.stab.reset(); S.boxes = []; if (S.tool === "center") setTool(null); syncClassBar(); renderList(); renderPanel(); drawOv(); refresh(); }
