@@ -239,10 +239,12 @@
     postView(v); scheduleSave();
   }
   function liveDraw(v) {
-    const cv = $("viewc"); SM.Charts.fitCanvas(cv);
+    const cv = $("viewc"), WAIT = "等待操作電腦開始掃描…"; let wait = WAIT; SM.Charts.fitCanvas(cv);
     if (!S.follow) v = null;
+    else if (v && !(S.sw > 0)) { v = null; wait = "這班尚未校準地板（或操作電腦還沒存校準），無法換算人數。"; } // 沒有畫面大小就算不出位置，寧可不顯示也不要顯示成 0
+    if (v && !v.counts.every(Number.isFinite)) v = null;
     if (v) v.sub = (S.cls ? S.cls.name : "") + "・" + SM.Q.groupName(S.group) + (S.follow && S.follow.by ? "　（操作裝置 " + S.follow.by + "）" : "");
-    SM.Charts.smooth(cv, v, "等待操作電腦開始掃描…");
+    SM.Charts.smooth(cv, v, wait);
   }
   function postView(v) {
     const m = { kind: "view", view: v };
@@ -532,6 +534,7 @@
   function applyClassCalib() {
     const c = S.cls; if (!c) return;
     S.floor = c.floor; $("floorW").value = c.floor.w; $("floorD").value = c.floor.d;
+    if (S.live && !S.src && c.sz) { S.sw = c.sz[0]; S.sh = c.sz[1]; } // 跟隨投影頁沒有影像：用操作電腦校準時的畫面大小，圓點像素座標才換算得回地板
     const n = toNorm(c); c.corners = n; S.corners = [];
     if (n.length === 4 && S.sw) { const same = !c.sz || Math.abs(c.sz[0] / c.sz[1] - S.sw / S.sh) < 0.03; if (same) S.corners = n.map((p) => [p[0] * S.sw, p[1] * S.sh]); }
     rebuildH(); S.calibDirty = false; calibInfo();
