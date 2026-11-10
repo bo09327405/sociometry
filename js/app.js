@@ -258,6 +258,7 @@
     tr.append(h("label", {}, "技術"), ...["spectrum", "matrix", "distance", "cards"].map((t) => h("button", { class: q.type === t ? "on" : "", onclick: () => changeType(t), title: SM.Modes[t].en }, SM.Modes[t].name)));
     $("techHint").textContent = SM.Modes[q.type].en + "：" + SM.Modes[q.type].hint;
     const p = $("panel"); p.innerHTML = ""; p.append(...SM.Modes[q.type].panel(q, () => { drawOv(); refresh(); renderList(); }, null, App));
+    if (SM.Auth && typeof lockCfg === "function") lockCfg(!SM.Auth.isTeacher());
   }
   function changeType(t) {
     const q = Q(); if (q.type === t) return; if (q.locked) return msg("本題已鎖定，請先解除鎖定。");
@@ -326,7 +327,7 @@
   async function saveClass() {
     if (S.noSave || !S.cls) return;
     if (S.calibDirty && S.sw) { S.cls.corners = S.corners.length === 4 ? S.corners.map((p) => [p[0] / S.sw, p[1] / S.sh]) : []; S.cls.sz = [S.sw, S.sh]; S.calibDirty = false; calibInfo(); }
-    try { await SM.Store.putClass(plainNow()); await SM.Store.setMeta("app", { cur: S.cls.id, settings: S.settings, template: S.meta.template }); $("saveInfo").textContent = "已自動儲存 " + new Date().toLocaleTimeString("zh-TW", { hour12: false }); }
+    try { await SM.Store.putClass(plainNow()); await SM.Store.setMeta("app", { cur: S.cls.id, settings: S.settings, template: S.meta.template }); await pushClass(S.cls); $("saveInfo").textContent = "已自動儲存 " + new Date().toLocaleTimeString("zh-TW", { hour12: false }); }
     catch (e) { $("saveInfo").textContent = "⚠ 儲存失敗：" + e.message + "（請用「全部備份」匯出）"; }
   }
   function scheduleSave() { if (S.noSave) return; clearTimeout(S.saveTimer); S.saveTimer = setTimeout(saveClass, 500); }
@@ -334,16 +335,26 @@
   addEventListener("pagehide", () => saveClass());
 
   /* ================= 教師權限（Google 登入把關；非資安機制，見 js/auth.js） ================= */
+  /* 雲端模式下，沒登入的人（學生）不能改題目／設定（伺服器規則同樣會擋）；仍可掃描、校正圓點、鎖定、存快照 */
+  function lockCfg(lock) {
+    lock = lock && cloudOn();
+    ["qAdd", "qDup", "qDel", "qUp", "qDn", "grpN", "cTplSave", "floorW", "floorD", "bRecal", "bCal"].forEach((id) => { if ($(id)) { $(id).disabled = lock; $(id).title = lock ? "需要教師登入" : ""; } });
+    $("qTitle").disabled = lock;
+    document.querySelectorAll("#panel input, #panel select, #techRow button").forEach((e) => (e.disabled = lock));
+    document.querySelectorAll("#panel button").forEach((b) => { if (/圓心/.test(b.textContent)) b.disabled = lock; });
+    $("cUpload").hidden = !(cloudOn() && SM.Auth.isTeacher() && S.classes.some((c) => !c._cloud));
+  }
   const GATED = ["cCalAll", "cNew", "cRen", "cDel", "cTplApply", "cImp", "qReset", "qImp"];
   function guard() { if (SM.Auth.isTeacher()) return true; msg(SM.Auth.user ? "「" + SM.Auth.user.email + "」不在教師名單內，無法執行這個操作。" : "這個操作需要教師登入：請按右上角「使用 Google 登入」。"); return false; }
   function applyAuth() {
     const A = SM.Auth, ok = A.isTeacher(), box = $("authBox"); box.innerHTML = "";
     GATED.forEach((id) => { const b = $(id); if (!b) return; b.disabled = !ok; b.classList.toggle("locked", !ok); b.title = ok ? "" : "需要教師 Google 登入"; });
+    lockCfg(!ok);
     if (!A.enabled()) { box.append(h("span", { class: "mute", title: "在 js/config.js 填入 Google Client ID 後啟用" }, "（Google 登入未啟用）")); return; }
     if (A.user) {
       box.append(h("span", { class: ok ? "who" : "no" }, (ok ? "👤 教師：" : "⚠ 非教師帳號：") + (A.user.name || A.user.email)), ok ? h("button", { class: "sm", onclick: manageTeachers }, "教師名單") : "", h("button", { class: "sm", onclick: () => A.logout() }, "登出"));
     } else {
-      const g = h("span", { id: "gbtn" }), b = h("button", { class: "sm", onclick: async () => { b.disabled = true; try { await A.loadGsi(); b.remove(); A.renderButton(g); } catch (e) { b.disabled = false; msg(e.message); } } }, "教師登入（Google）");
+      const g = h("span", { id: "gbtn" }), b = h("button", { class: "sm", onclick: async () => { b.disabled = true; if (cloudOn()) { try { await Cl().signIn(); } catch (e) { msg("登入失敗：" + (e.message || e.code)); } b.disabled = false; return; } try { await A.loadGsi(); b.remove(); A.renderButton(g); } catch (e) { b.disabled = false; msg(e.message); } } }, "教師登入（Google）");
       box.append(h("span", { class: "mute" }, "班級管理需教師登入；上課操作不需要"), b, g);
     }
   }
@@ -354,6 +365,98 @@
     await A.setOwners(list); msg("教師名單已更新：" + A.teachers().join("、"));
   }
   SM.Auth.onChange = applyAuth; SM.Auth.onDenied = (r) => msg("登入失敗：" + r);
+
+  /* ================= 雲端同步（Firebase；未設定時完全不啟用） ================= */
+  const Cl = () => SM.Cloud, st8 = (v) => Cl().stable(v);
+  const cloudOn = () => Cl().on;
+  function setSync(kind, e) {
+    const el = $("syncInfo"); if (!el) return;
+    if (!cloudOn()) { el.textContent = Cl().err ? "☁ " + Cl().err : "☁ 僅本機（雲端同步未啟用）"; return; }
+    if (kind === "err") { const code = e && e.code ? e.code : ""; el.textContent = "☁ 同步失敗：" + (code === "permission-denied" ? "沒有權限（需教師登入）" : (e && e.message) || "未知錯誤"); el.style.color = "var(--bad)"; return; }
+    el.style.color = ""; el.textContent = kind === "wait" ? "☁ 連線中…" : "☁ 已同步 " + new Date().toLocaleTimeString("zh-TW", { hour12: false });
+  }
+  const metaOf = (c) => ({ id: c.id, name: c.name, groups: c.groups, created: c.created, corners: Cl().cornersOut(c.corners), sz: c.sz || null, floor: c.floor, qorder: c.qs.map((q) => q.id) });
+  const visibleClasses = () => (cloudOn() && !SM.Auth.isTeacher() ? S.classes.filter((c) => c._cloud) : S.classes);
+
+  /* 推送「與上次同步不同」的部分。教師：班級設定、題目設定、各組結果；學生：只有各組結果（規則也只允許這樣） */
+  function pushClass(c) { if (!c) return; c._pushP = (c._pushP || Promise.resolve()).then(() => doPush(c)); return c._pushP; } // 同一班的推送排隊，避免同時進行
+  async function doPush(c) {
+    if (!cloudOn() || !c || !c._cloud || !c._synced) return;
+    c._h = c._h || { meta: "", q: {} }; const teacher = SM.Auth.isTeacher();
+    try {
+      if (teacher) { const m = metaOf(c), hm = st8(m); if (hm !== c._h.meta) { await Cl().putClassMeta(m); c._h.meta = hm; } }
+      for (const q of c.qs) {
+        const qh = c._h.q[q.id] || (c._h.q[q.id] = { cfg: "", res: {} });
+        if (teacher) { const hc = st8({ title: q.title, type: q.type, cfg: q.cfg }); if (hc !== qh.cfg) { await Cl().setQuestionConfig(c.id, q); qh.cfg = hc; } }
+        for (const g of Object.keys(q.res)) { const hr = st8(q.res[g]); if (hr !== qh.res[g]) { await Cl().updateRes(c.id, q.id, g, q.res[g]); qh.res[g] = hr; } }
+      }
+      if (teacher) for (const id of Object.keys(c._h.q)) if (!c.qs.some((q) => q.id === id)) { await Cl().deleteQuestion(c.id, id); delete c._h.q[id]; }
+      setSync("ok");
+    } catch (e) { console.warn("push failed", e); setSync("err", e); }
+  }
+  function sortQs(c) { const o = c._qorder; if (!o) return; const rank = (q) => { const i = o.indexOf(q.id); return i < 0 ? 1e9 : i; }; c.qs.sort((a, b) => rank(a) - rank(b)); }
+
+  /* 套用遠端的班級清單／設定 */
+  function onRemoteClasses(changes) {
+    let activeGone = false;
+    for (const ch of changes) {
+      if (ch.type === "removed") { const i = S.classes.findIndex((c) => c.id === ch.id && c._cloud); if (i >= 0) { if (S.cls && S.cls.id === ch.id) activeGone = true; S.classes.splice(i, 1); if (!S.noSave) SM.Store.delClass(ch.id); } continue; }
+      const d = ch.data; let c = S.classes.find((x) => x.id === ch.id);
+      if (!c) { c = { id: ch.id, groups: 4, created: d.created || Date.now(), corners: [], sz: null, floor: { w: 8, d: 6 }, cur: 0, group: "1", qs: [], _h: { meta: "", q: {} } }; S.classes.push(c); }
+      c._cloud = true; c._metaRemote = true; c.name = d.name; c.groups = d.groups || 4; c.created = d.created || c.created; c.corners = Cl().cornersIn(d.corners); c.sz = d.sz || null; if (d.floor) { if (c === S.cls) { S.floor.w = d.floor.w; S.floor.d = d.floor.d; } else c.floor = d.floor; } c._qorder = d.qorder || null;
+      if (c === S.cls && c._synced) { sortQs(c); c._h.meta = st8(metaOf(c)); }
+    }
+    S.classes.sort((a, b) => a.created - b.created);
+    if (activeGone || (S.cls && !visibleClasses().includes(S.cls))) { S.cls = null; const n = visibleClasses()[0]; if (n) switchClass(n.id); else syncClassBar(); return; }
+    if (S.cls && S.cls._cloud) { applyClassCalib(); $("floorW").value = S.floor.w; $("floorD").value = S.floor.d; if (S.cls._synced) { const id = Q() && Q().id; sortQs(S.cls); const i = S.qs.findIndex((q) => q.id === id); if (i >= 0) S.cur = i; renderList(); } drawOv(); refresh(true); }
+    syncClassBar(); setSync("ok");
+  }
+
+  /* 套用遠端的題目（只監聽目前班級） */
+  function watchActive() {
+    if (S.unsubQ) { try { S.unsubQ(); } catch (e) {} S.unsubQ = null; }
+    const c = S.cls; if (!cloudOn() || !c || !c._cloud) return;
+    c._synced = false; c._h = c._h || { meta: "", q: {} };
+    S.unsubQ = Cl().watchQuestions(c.id, (changes) => { if (S.cls === c) onRemoteQuestions(c, changes); }, (e) => setSync("err", e));
+  }
+  function onRemoteQuestions(c, changes) {
+    stashAll(); const curId = Q() && Q().id; let touched = false;
+    for (const ch of changes) {
+      if (ch.pending) continue; // 自己剛寫出去的回聲
+      if (ch.type === "removed") { const i = c.qs.findIndex((q) => q.id === ch.id); if (i >= 0) { c.qs.splice(i, 1); touched = true; } delete c._h.q[ch.id]; continue; }
+      const d = ch.data; let q = c.qs.find((x) => x.id === ch.id);
+      if (!q) { q = SM.Q.create(d.type || "spectrum", d.title, d.cfg); q.id = ch.id; q.res = {}; c.qs.push(q); touched = true; }
+      const qh = c._h.q[q.id] || (c._h.q[q.id] = { cfg: "", res: {} });
+      if (d.type) { // 題目設定：學生沒有寫入權，一律以雲端為準；教師若有尚未推送的本機修改則以本機為準
+        const hd = st8({ title: d.title, type: d.type, cfg: d.cfg }), hl = st8({ title: q.title, type: q.type, cfg: q.cfg });
+        const dirty = SM.Auth.isTeacher() && qh.cfg !== "" && hl !== qh.cfg;
+        if (!dirty) { if (hd !== hl) { q.title = d.title; q.type = d.type; q.cfg = d.cfg; touched = true; } qh.cfg = hd; }
+      }
+      for (const g of Object.keys(d.res || {})) {
+        const remote = d.res[g], hr = st8(remote), local = q.res[g];
+        if (hr === qh.res[g]) continue;                                   // 已是同步狀態
+        if (local && qh.res[g] !== undefined && st8(local) !== qh.res[g]) continue; // 本機有尚未同步的修改：以本機為準，稍後會推送
+        q.res[g] = remote; qh.res[g] = hr; touched = true;
+      }
+    }
+    const firstSync = !c._synced; if (firstSync) { c._synced = true; touched = true; }
+    if (c._qorder) sortQs(c);
+    if (c._metaRemote) c._h.meta = st8(metaOf(c)); // 雲端已有這班的設定才視為已同步；新建的班級要等著被推送
+    if (touched) { loadAll(); const i = S.qs.findIndex((q) => q.id === curId); S.cur = Math.max(0, i >= 0 ? i : Math.min(S.cur, S.qs.length - 1)); if (!S.qs.length) S.cur = 0; renderList(); if (Q()) { renderPanel(); drawOv(); refresh(true); } else { $("chart").getContext("2d").clearRect(0, 0, 9999, 9999); } }
+    setSync("ok"); if (firstSync) scheduleSave(); // 補推在等待首次同步期間產生的本機變更
+  }
+  async function uploadLocal() {
+    if (!guard()) return; const todo = S.classes.filter((c) => !c._cloud); if (!todo.length) return msg("沒有尚未上傳的本機班級。");
+    if (!confirm("把這 " + todo.length + " 個本機班級（" + todo.map((c) => c.name).join("、") + "）上傳到雲端？\\n上傳後，所有裝置都能看到班級名稱、題目、各組圓點與人數（不含姓名與影像）。")) return;
+    stashAll(); for (const c of todo) { c._cloud = true; c._synced = true; c._h = { meta: "", q: {} }; await pushClass(c); }
+    watchActive(); syncClassBar(); msg("已上傳 " + todo.length + " 班到雲端。");
+  }
+  async function startCloud() {
+    setSync("wait");
+    await new Promise((res) => { let first = true; Cl().watchClasses((ch) => { onRemoteClasses(ch); if (first) { first = false; res(); } }, (e) => { setSync("err", e); if (first) { first = false; res(); } }); });
+    if (S.cls && S.cls._cloud) watchActive();
+    else if (!SM.Auth.isTeacher()) { const n = visibleClasses()[0]; if (n) await switchClass(n.id); }
+  }
 
   /* ================= 班級／組別 ================= */
   const groupsOf = () => { const n = S.cls ? S.cls.groups : 4; return Array.from({ length: n }, (_, i) => String(i + 1)); };
@@ -372,7 +475,7 @@
   }
   function calibInfo() { const c = S.cls, saved = c && c.corners && c.corners.length === 4; $("calibInfo").textContent = !c ? "" : !saved ? "📐 本班尚未校準" : S.sw && !S.corners.length ? "📐 本班有校準，但目前畫面的長寬比不同，請重新校準" : "📐 本班已校準（套用於本班所有組別與題目）"; }
   function syncClassBar() {
-    const cs = $("clsSel"); cs.innerHTML = ""; S.classes.forEach((c) => cs.append(h("option", { value: c.id }, c.name))); if (S.cls) cs.value = S.cls.id;
+    const cs = $("clsSel"); cs.innerHTML = ""; visibleClasses().forEach((c) => cs.append(h("option", { value: c.id }, c.name + (cloudOn() && !c._cloud ? "（僅本機）" : "")))); if (S.cls) cs.value = S.cls.id;
     const gs = $("grpSel"); gs.innerHTML = ""; groupsOf().forEach((g) => gs.append(h("option", { value: g }, SM.Q.groupName(g)))); gs.append(h("option", { value: "all" }, "全班同場（一次站完）"), h("option", { value: "merge" }, "合併檢視（第1–" + groupsOf().length + "組相加・唯讀）")); gs.value = S.group;
     $("grpN").value = S.cls ? S.cls.groups : 4;
   }
@@ -382,14 +485,14 @@
     if (S.cls && id === S.cls.id) return; stopLoop(); await saveClass();
     const c = S.classes.find((x) => x.id === id); if (!c) return;
     S.cls = c; S.qs = c.qs; S.cur = Math.min(c.cur || 0, S.qs.length - 1); S.group = c.group && c.group !== "merge" && validGroup(c.group) ? c.group : "1"; S.filter = ""; $("qSearch").value = "";
-    loadAll(); applyClassCalib(); afterSwitch(); msg("已切換到「" + c.name + "」。" + (c.corners.length === 4 && !calibrated() && S.sw ? "（這班儲存的校準與目前畫面大小不同，請重新校準。）" : ""));
+    loadAll(); applyClassCalib(); watchActive(); afterSwitch(); msg("已切換到「" + c.name + "」。" + (c.corners.length === 4 && !calibrated() && S.sw ? "（這班儲存的校準與目前畫面大小不同，請重新校準。）" : ""));
   }
   const tplConfigs = () => S.meta.template || SM.Q.configsOf(SM.Q.sampleSet());
   async function addClasses(names) {
     const made = names.map((n) => SM.Q.newClass(n, tplConfigs(), 4)); if (!made.length) return;
     if (S.cls && toNorm(S.cls).length === 4) made.forEach((c) => { c.corners = toNorm(S.cls); c.sz = S.cls.sz; c.floor = { w: S.cls.floor.w, d: S.cls.floor.d }; }); // 同一間教室：新班級自動沿用校準
-    made.forEach((c) => { S.classes.push(c); if (!S.noSave) SM.Store.putClass(c); });
-    S.classes.sort((a, b) => a.created - b.created); await switchClass(made[0].id); syncClassBar();
+    made.forEach((c) => { if (cloudOn()) { c._cloud = true; c._synced = true; c._h = { meta: "", q: {} }; } S.classes.push(c); if (!S.noSave) SM.Store.putClass(c); });
+    S.classes.sort((a, b) => a.created - b.created); await switchClass(made[0].id); for (const c of made) await pushClass(c); syncClassBar();
   }
   $("clsSel").onchange = (e) => switchClass(e.target.value);
   $("grpSel").onchange = (e) => setGroup(e.target.value);
@@ -399,9 +502,9 @@
   $("cDel").onclick = async () => {
     if (!guard()) return;
     if (!confirm("刪除班級「" + S.cls.name + "」？它所有組別的結果與快照都會刪除，無法復原。\n（建議先按「匯出本班」備份）")) return;
-    const id = S.cls.id; stopLoop(); S.classes = S.classes.filter((c) => c.id !== id); if (!S.noSave) await SM.Store.delClass(id);
-    S.cls = null; if (!S.classes.length) { const c = SM.Q.newClass("第1班", tplConfigs(), 4); S.classes.push(c); if (!S.noSave) SM.Store.putClass(c); }
-    await switchClass(S.classes[0].id); syncClassBar();
+    const id = S.cls.id, wasCloud = S.cls._cloud; stopLoop(); if (cloudOn() && wasCloud) { try { await Cl().deleteClass(id); } catch (e) { return setSync("err", e); } } S.classes = S.classes.filter((c) => c.id !== id); if (!S.noSave) await SM.Store.delClass(id);
+    S.cls = null; if (!visibleClasses().length) { const c = SM.Q.newClass("第1班", tplConfigs(), 4); S.classes.push(c); if (!S.noSave) SM.Store.putClass(c); }
+    await switchClass(visibleClasses()[0].id); syncClassBar();
   };
   $("cCalAll").onclick = async () => {
     if (!guard()) return; await saveClass(); const n = toNorm(S.cls);
@@ -410,6 +513,7 @@
     for (const c of S.classes) { if (c === S.cls) continue; c.corners = n.map((p) => p.slice()); c.sz = S.cls.sz; c.floor = { w: S.cls.floor.w, d: S.cls.floor.d }; if (!S.noSave) await SM.Store.putClass(SM.Q.plainClass(c, c.qs)); }
     msg("已把校準套用到全部 " + S.classes.length + " 個班級。");
   };
+  $("cUpload").onclick = uploadLocal;
   $("cTplSave").onclick = () => { S.meta.template = SM.Q.configsOf(S.qs); scheduleSave(); msg("已把本班的 " + S.qs.length + " 題存為「範本題組」。之後新增班級會自動套用。"); };
   $("cTplApply").onclick = () => { if (!guard()) return; if (!confirm("用範本題組取代本班全部題目？本班各組結果與快照會被清除。")) return; S.qs = SM.Q.fromConfigs(tplConfigs()); S.cls.qs = S.qs; S.cur = 0; afterSwitch(); msg("已套用範本題組（" + S.qs.length + " 題）。"); };
   $("qSearch").oninput = (e) => { S.filter = e.target.value; renderList(); };
@@ -456,6 +560,8 @@
       if (mode === "ls") msg("⚠ 這個瀏覽器不能用 IndexedDB，改用 localStorage（容量較小）。請定期「全部備份」。");
     }
     await SM.Auth.init(); applyAuth();
+    if (P.get("fakecloud")) { try { await SM.loadScript(["tools/fakecloud.js"]); } catch (e) { console.warn(e); } }
+    if (!S.noSave || P.get("fakecloud")) { if (await Cl().init()) SM.Auth.useCloud(); }
     if (meta) { Object.assign(S.settings, meta.settings || {}); S.meta.template = meta.template || null; }
     if (!SM.MODELS[S.settings.model]) S.settings.model = "yolov10s";
     if (!navigator.gpu && !(meta && meta.settings) && S.settings.model === "yolov10s") S.settings.model = "yolov10n"; // 沒有 WebGPU 時 WASM 較慢
@@ -474,6 +580,7 @@
     };
     if (P.get("img")) loadImg(P.get("img"));
     S.ready = true;
+    if (cloudOn()) await startCloud(); setSync("ok"); applyAuth(); renderPanel();
   }
   window.SMApp = { S, scanOnce, refresh, buildView, selectQ, rebuildH, drawOv, toFloor, snapshot, setGroup, switchClass, addClasses, saveClass, plainNow, boot: () => S.bootP };
   S.bootP = boot();

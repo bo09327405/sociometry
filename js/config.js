@@ -12,4 +12,7 @@ SM.CONFIG = {
   ],
   // 也可直接寫明文 email（會公開在 repo）。
   teachers: [],
+  // 雲端同步（Firebase）。留空＝只存在各自瀏覽器、不同步。設定步驟見 README「雲端同步」。
+  // 這些值是公開的網頁設定（不是密鑰），安全性由 Firestore 規則決定。
+  firebase: { apiKey: "", authDomain: "", projectId: "", appId: "" },
 };

@@ -7,7 +7,7 @@
   const Auth = (SM.Auth = { user: null, owners: [], onChange: () => {}, ready: false });
   const norm = (e) => String(e || "").trim().toLowerCase();
 
-  Auth.enabled = () => !!cfg.googleClientId;
+  Auth.enabled = () => !!cfg.googleClientId || !!(SM.Cloud && SM.Cloud.on);
   Auth.teachers = () => Array.from(new Set((cfg.teachers || []).map(norm).concat(Auth.owners.map(norm)).filter(Boolean)));
   Auth.isTeacher = () => !Auth.enabled() || (!!Auth.user && (Auth.teachers().includes(norm(Auth.user.email)) || (!!Auth.user.hash && (cfg.teacherHashes || []).includes(Auth.user.hash))));
   Auth.sha256 = async (t) => { try { const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(norm(t))); return Array.from(new Uint8Array(b)).map((x) => x.toString(16).padStart(2, "0")).join(""); } catch (e) { return null; } };
@@ -31,9 +31,15 @@
   Auth.saveOwners = async () => { try { if (SM.Store && SM.Store.ready) await SM.Store.setMeta("teachers", Auth.owners); } catch (e) {} };
   Auth.setOwners = async (list) => { Auth.owners = Array.from(new Set(list.map(norm).filter(Boolean))); await Auth.saveOwners(); Auth.onChange(); };
   Auth.logout = function () {
+    if (SM.Cloud && SM.Cloud.on) { SM.Cloud.signOut(); return; } // 雲端模式：由 onAuthStateChanged 更新
     Auth.user = null; try { sessionStorage.removeItem("sm.auth"); } catch (e) {}
     try { window.google && google.accounts.id.disableAutoSelect(); } catch (e) {}
     Auth.onChange();
+  };
+
+  /* 雲端模式：登入狀態交給 Firebase Auth（教師名單的真正把關在 Firestore 規則；這裡只決定介面要不要解鎖） */
+  Auth.useCloud = function () {
+    SM.Cloud.onAuth(async (u) => { Auth.user = u ? { email: u.email, name: u.name, exp: Infinity, hash: await Auth.sha256(u.email), verified: u.verified } : null; Auth.onChange(); });
   };
 
   /* 讀取教師名單與（尚未過期的）登入狀態，並載入 Google 登入按鈕 */
