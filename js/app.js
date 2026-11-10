@@ -1,7 +1,7 @@
 /* 主程式：相機／照片來源、地板校準、掃描、手動校正、題目切換、投影視窗、匯出。 */
 (function () {
   const SM = window.SM, $ = SM.$, h = SM.h;
-  const isView = location.hash === "#view";
+  const isView = location.hash === "#view", isLive = location.hash === "#live"; // #view：本機投影（同瀏覽器即時）；#live：雲端跟隨投影
   const bc = "BroadcastChannel" in window ? new BroadcastChannel("sociometry") : null;
 
   /* ================= 投影視窗（#view） ================= */
@@ -22,10 +22,12 @@
     return;
   }
 
+  if (isLive) { document.body.classList.add("view", "live"); document.title = "跟隨投影 — 社會計量"; }
+
   /* ================= 狀態 ================= */
   const S = {
     src: null, sw: 0, sh: 0, srcType: "", corners: [], H: null, Hinv: null, floor: { w: 8, d: 6 },
-    tool: null, qs: [], cur: 0, cls: null, classes: [], group: "1", meta: { template: null }, noSave: false, calibDirty: false, filter: "", loop: false, busy: false, boxes: [], boxMeta: null, undo: [],
+    live: isLive, follow: null, liveMode: "auto", lastOp: 0, lastPub: "", pubT: 0, devName: "", tool: null, qs: [], cur: 0, cls: null, classes: [], group: "1", meta: { template: null }, noSave: false, calibDirty: false, filter: "", loop: false, busy: false, boxes: [], boxMeta: null, undo: [],
     settings: { model: "yolov10s", tiles: "auto", thr: 0.25, foot: "bottom", stab: 5, showBox: false },
     stab: new SM.Stabilizer(5), drag: null, projWin: null, saveTimer: null,
   };
@@ -148,7 +150,7 @@
       if (q.type === "cards") return msg("色卡模式請用右側 ＋／− 調整人數。");
       const i = q.pts.findIndex((p) => Math.hypot(p.x - x, p.y - y) < hitR());
       if (i >= 0) { S.drag = { kind: "pt", i, sx: x, sy: y, moved: false, orig: { x: q.pts[i].x, y: q.pts[i].y } }; $("ov").setPointerCapture(e.pointerId); }
-      else { pushUndo(); q.pts.push({ x, y, m: 1 }); drawOv(); refresh(); }
+      else { pushUndo(); q.pts.push({ x, y, m: 1 }); drawOv(); refresh(); publishLive(true); }
     }
   });
   $("ov").addEventListener("pointermove", (e) => {
@@ -159,7 +161,7 @@
   });
   $("ov").addEventListener("pointerup", () => {
     const d = S.drag; S.drag = null; if (!d) return; const q = Q();
-    if (d.kind === "pt" && !d.moved) { pushUndo(); const p = q.pts[d.i]; if (!p.m) q.hidden.push({ x: p.x, y: p.y, r: 30 * kScale() }); q.pts.splice(d.i, 1); drawOv(); refresh(); }
+    if (d.kind === "pt" && !d.moved) { publishLive(true); pushUndo(); const p = q.pts[d.i]; if (!p.m) q.hidden.push({ x: p.x, y: p.y, r: 30 * kScale() }); q.pts.splice(d.i, 1); drawOv(); refresh(); }
     else if (d.kind === "corner") { hint(); refresh(); }
     else refresh();
   });
@@ -176,7 +178,7 @@
     const q = Q(); if (!q) return noQ(); if (!S.sw) return msg("請先開啟鏡頭或載入照片。"); if (S.busy) return;
     if (ro()) { msg("合併檢視是唯讀，請先切到某一組再掃描。"); stopLoop(); return; }
     if (q.locked) { msg("本題已鎖定。要重新掃描請先解除鎖定。"); S.loop = false; $("bLoop").classList.remove("on"); return; }
-    S.busy = true; $("bScan").disabled = true;
+    S.busy = true; $("bScan").disabled = true; publishLive(true);
     try {
       if (q.type === "cards") {
         const r = SM.Cards.detect(S.src, S.sw, S.sh, scanROI() ? (() => { const r2 = scanROI(); return [r2[0], r2[1], r2[0] + r2[2], r2[1] + r2[3]]; })() : null);
@@ -220,7 +222,9 @@
   let refreshing = 0;
   function refresh(light) {
     const q = Q(); if (!q) return;
-    const v = buildView(q); SM.Charts.draw($("chart"), v);
+    const v = buildView(q);
+    if (S.live) { liveDraw(v); return; } // 跟隨投影頁：只畫大圖，不做其他事
+    SM.Charts.draw($("chart"), v);
     const tot = $("stat");
     tot.innerHTML = ""; tot.append(h("span", { class: "p", style: "background:#3a3322;color:#ffd37a" }, (S.cls ? S.cls.name + "・" : "") + SM.Q.groupName(S.group)));
     if (q.type === "cards") tot.append(h("span", { class: "big" }, v.total), "人（色卡）");
@@ -229,6 +233,12 @@
     $("bLock").textContent = q.locked ? "🔒 解除鎖定" : "④ 鎖定本題"; $("bLock").classList.toggle("on", q.locked); $("bLock").disabled = ro();
     if (!light) hint();
     postView(v); scheduleSave();
+  }
+  function liveDraw(v) {
+    const cv = $("viewc"), d = window.devicePixelRatio || 1; cv.width = Math.round(innerWidth * d); cv.height = Math.round(innerHeight * d);
+    if (!S.follow) v = null;
+    if (v) v.sub = (S.cls ? S.cls.name : "") + "・" + SM.Q.groupName(S.group) + (S.follow && S.follow.by ? "　（操作裝置 " + S.follow.by + "）" : "");
+    SM.Charts.draw(cv, v, "等待操作電腦開始掃描…");
   }
   function postView(v) {
     const m = { kind: "view", view: v };
@@ -267,7 +277,7 @@
     if (q.pts.length && !confirm("切換技術會保留圓點位置，但設定會重設為該技術的預設值。繼續？")) return;
     q.type = t; q.cfg = SM.Modes[t].defaults(); renderPanel(); drawOv(); refresh(); renderList();
   }
-  function selectQ(i) { if (S.loop) { S.loop = false; $("bLoop").classList.remove("on"); } S.cur = Math.max(0, Math.min(S.qs.length - 1, i)); S.undo = []; S.stab.reset(); S.boxes = []; if (S.tool === "center") setTool(null); renderList(); renderPanel(); drawOv(); refresh(); }
+  function selectQ(i) { if (S.loop) { S.loop = false; $("bLoop").classList.remove("on"); } S.cur = Math.max(0, Math.min(S.qs.length - 1, i)); S.undo = []; S.stab.reset(); S.boxes = []; if (S.tool === "center") setTool(null); renderList(); renderPanel(); drawOv(); refresh(); publishLive(false); }
   $("qTitle").oninput = (e) => { Q().title = e.target.value; refresh(true); renderList(); };
   $("qAdd").onclick = () => { S.qs.push(SM.Q.create("spectrum", "新題目")); selectQ(S.qs.length - 1); };
   $("qDup").onclick = () => { const o = Q(); if (!o) return noQ(); const c = SM.Q.create(o.type, o.title + "（複製）", JSON.parse(JSON.stringify(o.cfg))); S.qs.splice(S.cur + 1, 0, c); selectQ(S.cur + 1); };
@@ -287,6 +297,7 @@
   }
   $("bLock").onclick = () => {
     const q = Q(); if (!q) return noQ(); if (ro()) return msg("合併檢視是唯讀；請切到某一組再鎖定。"); q.locked = !q.locked;
+    publishLive(true);
     if (q.locked) { S.loop = false; $("bLoop").classList.remove("on"); snapshot(); msg("已鎖定本題並存入快照。按 → 進入下一題。"); } else msg("已解除鎖定。");
     refresh(); renderList();
   };
@@ -336,6 +347,26 @@
   addEventListener("visibilitychange", () => { if (document.hidden) saveClass(); });
   addEventListener("pagehide", () => saveClass());
 
+  /* ================= 「正在操作」指標：讓跟隨投影頁知道要顯示哪班哪題哪組 ================= */
+  function publishLive(op) {
+    if (!cloudOn() || S.live || S.liveMode === "off" || !S.cls || !S.cls._cloud || !Q() || !S.ready) return;
+    const now = Date.now(); if (op) S.lastOp = now;
+    if (S.liveMode === "auto" && !op && now - S.lastOp > 180000) return; // 自動：最近 3 分鐘有掃描／校正／鎖定才跟隨換題
+    const key = S.cls.id + "|" + Q().id + "|" + S.group;
+    if (key === S.lastPub && now - S.pubT < 5000) return; // 同一目標最多每 5 秒重發一次
+    S.lastPub = key; S.pubT = now;
+    Cl().setLive({ classId: S.cls.id, qid: Q().id, group: S.group, by: S.devName, ts: now }).catch((e) => { console.warn("live pointer", e); }); // 失敗（例如規則尚未更新）不影響結果同步，只是投影不會自動跟隨
+  }
+  /* 跟隨投影頁：依雲端指標切換班級／組別／題目 */
+  async function applyFollow() {
+    const f = S.follow; if (!f || !S.live) return;
+    const c = S.classes.find((x) => x.id === f.classId && x._cloud); if (!c) return;
+    if (!S.cls || S.cls.id !== c.id) { await switchClass(c.id); return; } // 切班後等第一次同步完成再套用
+    if (!c._synced) return;
+    if (S.group !== f.group) setGroup(f.group);
+    const i = S.qs.findIndex((q) => q.id === f.qid); if (i >= 0 && S.cur !== i) selectQ(i);
+  }
+
   /* ================= 教師權限（Google 登入把關；非資安機制，見 js/auth.js） ================= */
   /* 雲端模式下，沒登入的人（學生）可以編輯題目（內容、技術、選項、新增／刪除／排序）與操作各組結果；
      但不能動「班級層級」的設定：新增／改名／刪除班級、組數、地板校準與大小（伺服器規則同樣會擋） */
@@ -381,6 +412,7 @@
   /* 推送「與上次同步不同」的部分。教師：班級設定、題目設定、各組結果；學生：只有各組結果（規則也只允許這樣） */
   function pushClass(c) { if (!c) return; c._pushP = (c._pushP || Promise.resolve()).then(() => doPush(c)); return c._pushP; } // 同一班的推送排隊，避免同時進行
   async function doPush(c) {
+    if (S.live) return; // 跟隨投影頁是唯讀的，絕不寫入
     if (!cloudOn() || !c || !c._cloud || !c._synced) return;
     c._h = c._h || { meta: "", q: {} }; const teacher = SM.Auth.isTeacher();
     try {
@@ -416,7 +448,7 @@
     S.classes.sort((a, b) => a.created - b.created);
     if (activeGone || (S.cls && !visibleClasses().includes(S.cls))) { S.cls = null; const n = visibleClasses()[0]; if (n) switchClass(n.id); else syncClassBar(); return; }
     if (S.cls && S.cls._cloud) { applyClassCalib(); $("floorW").value = S.floor.w; $("floorD").value = S.floor.d; if (S.cls._synced) { const id = Q() && Q().id; sortQs(S.cls); const i = S.qs.findIndex((q) => q.id === id); if (i >= 0) S.cur = i; renderList(); } drawOv(); refresh(true); }
-    syncClassBar(); setSync("ok");
+    syncClassBar(); setSync("ok"); if (S.live) applyFollow();
   }
 
   /* 套用遠端的題目（只監聽目前班級） */
@@ -451,6 +483,7 @@
     if (c._metaRemote) { c._h.meta = st8(metaOf(c)); c._h.qorder = st8(c.qs.map((q) => q.id)); } // 雲端已有這班的設定才視為已同步；新建的班級要等著被推送
     if (touched) { loadAll(); const i = S.qs.findIndex((q) => q.id === curId); S.cur = Math.max(0, i >= 0 ? i : Math.min(S.cur, S.qs.length - 1)); if (!S.qs.length) S.cur = 0; renderList(); if (Q()) { renderPanel(); drawOv(); refresh(true); } else { $("chart").getContext("2d").clearRect(0, 0, 9999, 9999); } }
     setSync("ok"); if (firstSync) scheduleSave(); // 補推在等待首次同步期間產生的本機變更
+    if (S.live) applyFollow();
   }
   async function uploadLocal() {
     if (!guard()) return; const todo = S.classes.filter((c) => !c._cloud); if (!todo.length) return msg("沒有尚未上傳的本機班級。");
@@ -486,7 +519,7 @@
     const gs = $("grpSel"); gs.innerHTML = ""; groupsOf().forEach((g) => gs.append(h("option", { value: g }, SM.Q.groupName(g)))); gs.append(h("option", { value: "all" }, "全班同場（一次站完）"), h("option", { value: "merge" }, "合併檢視（第1–" + groupsOf().length + "組相加・唯讀）")); gs.value = S.group;
     $("grpN").value = S.cls ? S.cls.groups : 4;
   }
-  function afterSwitch() { S.undo = []; S.stab.reset(); S.boxes = []; if (S.tool === "center") setTool(null); syncClassBar(); renderList(); renderPanel(); drawOv(); refresh(); }
+  function afterSwitch() { publishLive(false); S.undo = []; S.stab.reset(); S.boxes = []; if (S.tool === "center") setTool(null); syncClassBar(); renderList(); renderPanel(); drawOv(); refresh(); }
   function setGroup(g) { if (g === S.group || !validGroup(g)) return syncClassBar(); stopLoop(); stashAll(); S.group = g; loadAll(); afterSwitch(); msg(g === "merge" ? "合併檢視：把第 1–" + groupsOf().length + " 組的圓點相加；唯讀。" : "已切到「" + SM.Q.groupName(g) + "」。"); }
   async function switchClass(id) {
     if (S.cls && id === S.cls.id) return; stopLoop(); await saveClass();
@@ -548,6 +581,7 @@
 
   /* 鍵盤 */
   addEventListener("keydown", (e) => {
+    if (S.live) { if (e.key === "f" || e.key === "F") document.documentElement.requestFullscreen().catch(() => {}); return; } // 跟隨投影頁沒有任何操作快速鍵
     if (/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName) && document.activeElement.type !== "checkbox") return;
     if ((e.ctrlKey || e.metaKey) && e.key === "z") { e.preventDefault(); undo(); }
     else if (e.key === "ArrowRight") selectQ(S.cur + 1); else if (e.key === "ArrowLeft") selectQ(S.cur - 1);
@@ -558,7 +592,7 @@
 
   /* ================= 啟動 ================= */
   async function boot() {
-    const P = new URLSearchParams(location.search); S.noSave = P.has("fresh"); // fresh=1：測試模式，不讀也不寫儲存
+    const P = new URLSearchParams(location.search); S.noSave = P.has("fresh") || isLive; // fresh=1：測試模式，不讀也不寫儲存；#live 跟隨投影頁也不寫任何東西
     let meta = null;
     if (!S.noSave) {
       const mode = await SM.Store.init(); try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
@@ -568,7 +602,7 @@
     }
     await SM.Auth.init(); applyAuth();
     if (P.get("fakecloud")) { try { await SM.loadScript(["tools/fakecloud.js"]); } catch (e) { console.warn(e); } }
-    if (!S.noSave || P.get("fakecloud")) { if (await Cl().init()) SM.Auth.useCloud(); }
+    if (!P.has("fresh") || P.get("fakecloud")) { if (await Cl().init()) SM.Auth.useCloud(); }
     if (meta) { Object.assign(S.settings, meta.settings || {}); S.meta.template = meta.template || null; }
     if (!SM.MODELS[S.settings.model]) S.settings.model = "yolov10s";
     if (!navigator.gpu && !(meta && meta.settings) && S.settings.model === "yolov10s") S.settings.model = "yolov10n"; // 沒有 WebGPU 時 WASM 較慢
@@ -588,7 +622,17 @@
     if (P.get("img")) loadImg(P.get("img"));
     S.ready = true;
     if (cloudOn()) await startCloud(); setSync("ok"); applyAuth(); renderPanel();
+    if (isLive) {
+      addEventListener("dblclick", () => { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {}); });
+      if (!cloudOn()) { liveDraw(null); msg("跟隨投影需要雲端同步（請確認 js/config.js 的 firebase 設定與網路）。"); return; }
+      addEventListener("resize", () => { if (Q()) refresh(true); else liveDraw(null); });
+      Cl().watchLive((d) => { S.follow = d; applyFollow(); }, (e) => setSync("err", e));
+      liveDraw(Q() && S.follow ? buildView(Q()) : null);
+    }
   }
+  try { S.devName = sessionStorage.getItem("sm.dev") || ("裝置" + Math.random().toString(36).slice(2, 5).toUpperCase()); sessionStorage.setItem("sm.dev", S.devName); } catch (e) { S.devName = "裝置"; }
+  $("liveMode").onchange = (e) => { S.liveMode = e.target.value; if (S.liveMode === "always") publishLive(true); };
+  $("bLive").onclick = () => { if (!cloudOn()) return msg("跟隨投影需要雲端同步（目前是僅本機模式）。"); window.open(location.href.split("#")[0].split("?")[0] + "#live", "sociometry_live", "popup,width=1280,height=720"); msg("已開啟跟隨投影：它會自動顯示「任何電腦正在操作」的那一題，連續掃描的結果即時更新。把它拖到投影幕並雙擊全螢幕；這個頁面不用登入。"); };
   window.SMApp = { S, scanOnce, refresh, buildView, selectQ, rebuildH, drawOv, toFloor, snapshot, setGroup, switchClass, addClasses, saveClass, plainNow, boot: () => S.bootP };
   S.bootP = boot();
 })();

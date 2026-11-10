@@ -104,10 +104,11 @@
   };
 
   SM.Charts = {
-    draw(cv, v) {
+    draw(cv, v, waitText) {
       const c = cv.getContext("2d"), W = cv.width, H = cv.height;
-      if (!v) { c.fillStyle = BG; c.fillRect(0, 0, W, H); c.fillStyle = MUTE; c.font = H * 0.05 + "px " + FONT; c.textAlign = "left"; c.textBaseline = "middle"; c.fillText("等待主畫面傳送資料…", W * 0.04, H * 0.1); return; }
+      if (!v) { c.fillStyle = BG; c.fillRect(0, 0, W, H); c.fillStyle = MUTE; c.font = H * 0.05 + "px " + FONT; c.textAlign = "left"; c.textBaseline = "middle"; c.fillText(waitText || "等待主畫面傳送資料…", W * 0.04, H * 0.1); return; }
       (drawers[v.type] || drawers.spectrum)(c, W, H, v);
+      if (v.sub) { c.textAlign = "left"; c.textBaseline = "middle"; c.fillStyle = "#8793a8"; c.font = H * 0.028 + "px " + FONT; c.fillText(v.sub, W * 0.04, H * 0.975); }
     },
   };
 })();

@@ -51,6 +51,9 @@
     // 以欄位路徑只更新這一組的結果，不同裝置同時編輯不同組不會互相覆蓋
     return ref.update(new firebase.firestore.FieldPath("res", String(g)), v).catch((e) => (e && e.code === "not-found" ? ref.set({ id: qid, res: { [g]: v } }, { merge: true }) : Promise.reject(e)));
   };
+  /* 「正在操作」指標：投影頁跟隨它（任何人都可寫，內容只有班級/題目/組別代號與時間） */
+  Cloud.setLive = (o) => Cloud.db.collection("live").doc("now").set(clean(o));
+  Cloud.watchLive = (cb, err) => Cloud.db.collection("live").doc("now").onSnapshot((d) => cb(d.exists ? d.data() : null), err);
   Cloud.deleteQuestion = (cid, qid) => Cloud.db.collection("classes").doc(cid).collection("questions").doc(qid).delete();
   Cloud.deleteClass = async (cid) => {
     const col = Cloud.db.collection("classes").doc(cid).collection("questions"), snap = await col.get();
